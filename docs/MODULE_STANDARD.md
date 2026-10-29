@@ -38,9 +38,9 @@ Each module walks the reader through twelve sections, in this order. Sections 1 
 ### Rules for the code
 
 1. **Map code to math.** Comments reference the algorithm step they implement, for example `# Step 3: E-step, compute responsibilities r_ik`.
-2. **Never tune on the test set.** Choose hyperparameters, thresholds, and early-stopping points on a validation split or with cross-validation. Touch the test split once, at the end.
+2. **Never tune on the test set.** Choose hyperparameters, thresholds, and early-stopping points on a validation split or with cross-validation. Touch the test split once, at the end. `deepdraft.evaluation` provides `train_val_test_split`, `temporal_train_val_test_split`, and `rolling_origin_splits` for this.
 3. **Never evaluate on training data** unless the output is explicitly labeled "in-sample".
-4. **Seed everything** through one helper (`deepdraft.core.seed_everything`, planned in roadmap Phase 3).
+4. **Seed everything** through one helper, `deepdraft.core.seed_everything`.
 5. **No global warning suppression.** Silence a specific, understood warning with a targeted filter and a comment explaining why.
 6. **Headless-safe plotting.** Save figures through a shared helper that respects an output directory and a `--no-show` flag.
 7. **Fast mode.** `main(fast=True)` (or `DEEPDRAFT_FAST=1`) shrinks data and iterations so the smoke test finishes in seconds.
