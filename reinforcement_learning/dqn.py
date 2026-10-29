@@ -63,7 +63,8 @@ from collections import deque
 import random
 import gymnasium as gym
 
-from deepdraft.core import fast_or, save_figure
+from deepdraft.core import fast_or, save_figure, seed_everything
+from deepdraft.evaluation import mean_confidence_interval
 
 DEVICE = (
     torch.device("cuda") if torch.cuda.is_available()
@@ -443,10 +444,12 @@ DQN_CONFIG = {
     "use_per":         False,
     "total_timesteps": fast_or(100_000, 1_500),
     "learning_starts": fast_or(1000, 200),  # steps before first update
+    "seeds":           fast_or([0, 1, 2, 3, 4], [0, 1]),  # each seed is a full training run
+    "eval_episodes":   fast_or(10, 2),   # greedy episodes per trained agent
 }
 
 
-def train(config: dict = None) -> tuple:
+def train(config: dict = None, seed: int = 0) -> tuple:
     """
     DQN training loop with periodic evaluation.
 
@@ -457,7 +460,9 @@ def train(config: dict = None) -> tuple:
         agent, episode_returns list
     """
     cfg = config or DQN_CONFIG
+    seed_everything(seed)               # random, NumPy, and torch
     env = gym.make(cfg["env_id"])
+    env.action_space.seed(seed)
 
     obs_dim    = env.observation_space.shape[0]
     action_dim = env.action_space.n
@@ -472,7 +477,7 @@ def train(config: dict = None) -> tuple:
         use_dueling=cfg["use_dueling"], use_per=cfg["use_per"],
     )
 
-    obs, _ = env.reset()
+    obs, _ = env.reset(seed=seed)       # seeds the environment's own RNG once
     episode_return  = 0.0
     episode_returns = []
     recent_returns  = deque(maxlen=20)
@@ -489,7 +494,12 @@ def train(config: dict = None) -> tuple:
         next_obs, reward, terminated, truncated, _ = env.step(action)
         done = terminated or truncated
 
-        agent.buffer.push(obs, action, reward, next_obs, float(done))
+        # Store `terminated`, not `done`, as the bootstrap mask. A terminated
+        # state (the pole fell) has no future value, so the target is just r.
+        # A truncated state (CartPole's 500-step time limit) is cut off by the
+        # clock, not the dynamics: its target must still be r + γ max Q(s').
+        # Masking it would teach the agent that its best states are worthless.
+        agent.buffer.push(obs, action, reward, next_obs, float(terminated))
         obs            = next_obs
         episode_return += reward
         total_steps    += 1
@@ -547,10 +557,49 @@ def plot_training(episode_returns: list, losses: list, window: int = 20) -> None
 # MAIN
 # ─────────────────────────────────────────────
 
+def evaluate(agent: "DQNAgent", env_id: str, n_episodes: int, seed: int) -> float:
+    """
+    Mean return of the greedy policy (no exploration) on fresh episodes.
+
+    Training returns mix in epsilon-greedy exploration, so they understate
+    what the learned policy does. Evaluation episodes use seeds the training
+    run never saw.
+    """
+    env = gym.make(env_id)
+    returns = []
+    for k in range(n_episodes):
+        obs, _ = env.reset(seed=10_000 + 1_000 * seed + k)
+        total, done = 0.0, False
+        while not done:
+            obs_t = torch.tensor(obs, dtype=torch.float32).unsqueeze(0).to(DEVICE)
+            with torch.no_grad():
+                action = agent.online_net(obs_t).argmax(1).item()
+            obs, reward, terminated, truncated, _ = env.step(action)
+            done = terminated or truncated
+            total += reward
+        returns.append(total)
+    env.close()
+    return float(np.mean(returns))
+
+
 def main():
     print("=== Deep Q-Network (DQN) — Double + Dueling ===")
-    agent, returns, losses = train()
-    plot_training(returns, losses)
+    cfg = DQN_CONFIG
+
+    # One training run says little: RL results vary a lot between seeds.
+    # Train once per seed and report the mean with a 95% confidence interval.
+    scores = []
+    for i, seed in enumerate(cfg["seeds"]):
+        print(f"\n--- Seed {seed} ---")
+        agent, returns, losses = train(cfg, seed=seed)
+        scores.append(evaluate(agent, cfg["env_id"], cfg["eval_episodes"], seed))
+        print(f"  Greedy evaluation return: {scores[-1]:.1f}")
+        if i == 0:
+            plot_training(returns, losses)
+
+    mean, lo, hi = mean_confidence_interval(scores)
+    print(f"\nGreedy return over {len(scores)} seeds: {mean:.1f}  "
+          f"(95% CI [{lo:.1f}, {hi:.1f}]; per seed: {np.round(scores, 1).tolist()})")
 
 
 if __name__ == "__main__":

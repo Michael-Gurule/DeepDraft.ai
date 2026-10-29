@@ -5,6 +5,7 @@ from sklearn.metrics import mean_absolute_error
 from deepdraft.evaluation import (
     bootstrap_ci,
     mase,
+    mean_confidence_interval,
     rolling_origin_splits,
     temporal_train_val_test_split,
     train_val_test_split,
@@ -88,3 +89,17 @@ def test_mase_seasonal_period():
     assert mase(y_train[-4:], y_train[-4:], y_train, m=4) == 0.0
     with pytest.raises(ValueError):
         mase([1.0], [1.0], [1.0, 2.0], m=4)
+
+
+def test_mean_confidence_interval_matches_t_formula():
+    from scipy import stats
+    values = np.array([10.0, 12.0, 9.0, 11.0, 13.0])
+    mean, lo, hi = mean_confidence_interval(values)
+    half = stats.t.ppf(0.975, 4) * values.std(ddof=1) / np.sqrt(5)
+    assert mean == pytest.approx(11.0)
+    assert (lo, hi) == pytest.approx((11.0 - half, 11.0 + half))
+
+
+def test_mean_confidence_interval_single_value_is_undefined():
+    mean, lo, hi = mean_confidence_interval([3.0])
+    assert mean == 3.0 and np.isnan(lo) and np.isnan(hi)
