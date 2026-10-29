@@ -43,5 +43,7 @@ jobs:
         run: pip install torch --index-url https://download.pytorch.org/whl/cpu
       - name: Install project with all extras
         run: pip install -e ".[all,dev]"
+      - name: Run unit and reference tests
+        run: pytest tests --ignore=tests/smoke -q
       - name: Run smoke tests
         run: pytest tests/smoke -n auto -q -rs --durations=15

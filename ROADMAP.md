@@ -81,6 +81,8 @@ Phases 0 and 1 come first because the review found that 16 of 56 modules crash o
 
 ## Phase 0: Foundation and triage
 
+**Status:** complete.
+
 **Goal:** anyone can install the project, run any module, and see it pass in CI.
 
 | ID | Work package | Size | Details |
@@ -104,6 +106,8 @@ Phases 0 and 1 come first because the review found that 16 of 56 modules crash o
 ---
 
 ## Phase 1: Correctness and evaluation integrity
+
+**Status:** in progress.
 
 **Goal:** every implementation is correct and every reported number is honest.
 
