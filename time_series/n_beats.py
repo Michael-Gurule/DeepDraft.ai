@@ -219,11 +219,6 @@ class NBeatsStack(nn.Module):
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         residual = x
-        stack_forecast = torch.zeros(x.shape[0], self.blocks[0].theta_f_proj.out_features
-                                     if hasattr(self.blocks[0], '_forecast_len')
-                                     else _infer_forecast_len(self.blocks[0]),
-                                     device=x.device)
-        # Recompute from basis output shapes
         forecast_accum = None
         for block in self.blocks:
             backcast, forecast = block(residual)
@@ -233,14 +228,6 @@ class NBeatsStack(nn.Module):
             else:
                 forecast_accum = forecast_accum + forecast
         return residual, forecast_accum
-
-
-def _infer_forecast_len(block: NBeatsBlock) -> int:
-    """Infer forecast length from block's basis output."""
-    # Inspect basis buffer shapes
-    if hasattr(block.basis, 'B_f'):
-        return block.basis.B_f.shape[-1]
-    return block.theta_f_proj.out_features
 
 
 # ---------------------------------------------------------------------------

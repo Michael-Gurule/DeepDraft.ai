@@ -275,6 +275,7 @@ def plot_global_importance(
         top_k:        show only top K features
     """
     mean_abs = np.abs(shap_vals).mean(axis=0)
+    top_k = min(top_k, len(mean_abs))
     order = np.argsort(mean_abs)[::-1][:top_k]
 
     plt.figure(figsize=(8, max(4, top_k * 0.35)))
@@ -307,6 +308,7 @@ def plot_beeswarm(
         max_display_points:  subsample for display if n_samples > this
     """
     mean_abs = np.abs(shap_vals).mean(axis=0)
+    top_k = min(top_k, len(mean_abs))
     order = np.argsort(mean_abs)[::-1][:top_k]
 
     # Subsample for display

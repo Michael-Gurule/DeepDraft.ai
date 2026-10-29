@@ -138,7 +138,10 @@ def make_categorical_dataset(n_samples: int = 3000, seed: int = 42) -> tuple:
         "education":  rng.choice([0, 1, 2, 3, 4], n).astype(np.int32),  # categorical
         "score":      rng.normal(600, 100, n),
     })
-    y = (df["income"] * 0.3 + df["score"] * 100 + rng.normal(0, 5000, n) > 30000).astype(int)
+    # Threshold at the median so both classes occur (a fixed threshold of
+    # 30000 made nearly every label 1, leaving ROC-AUC undefined).
+    signal = df["income"] * 0.3 + df["score"] * 100 + rng.normal(0, 5000, n)
+    y = (signal > np.median(signal)).astype(int)
     X_train, X_test, y_train, y_test = train_test_split(
         df, y, test_size=0.2, random_state=seed, stratify=y
     )

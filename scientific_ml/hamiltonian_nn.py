@@ -535,8 +535,8 @@ def main():
     model_base, hist_base = train_hnn(data, model_type="baseline")
 
     # Rollout and energy comparison
-    q0 = np.array([[0.5]])
-    p0 = np.array([[0.3]])
+    q0 = np.array([0.5])   # one degree of freedom: shape (dof,)
+    p0 = np.array([0.3])
 
     print("\nLong-horizon rollout (500 steps):")
     qs_hnn, ps_hnn = leapfrog_rollout(model_hnn, q0, p0, n_steps=500, dt=0.05)

@@ -328,6 +328,8 @@ def train_pinn(config: dict = None) -> tuple:
     total, l_pde, l_bc, l_ic = compute_loss()
     history["total"].append(total.item())
     history["pde"].append(l_pde.item())
+    history["bc"].append(l_bc.item())
+    history["ic"].append(l_ic.item())
     print(f"  L-BFGS done | total: {total.item():.2e} | pde: {l_pde.item():.2e}")
 
     return model, history
