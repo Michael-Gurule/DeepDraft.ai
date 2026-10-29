@@ -39,7 +39,7 @@ Use Cases:
     - Option pricing (local vol surface)
     - Dynamic portfolio optimization (time-varying covariance)
     - Trading signal: enter/exit based on vol regime
-    - Hyperion: volatility-adjusted position sizing
+    - Volatility-adjusted position sizing
 
 Fine-Tuning Recommendations:
     - GARCH(1,1) is sufficient for most financial series. Higher p,q rarely help.
@@ -57,8 +57,8 @@ from arch import arch_model
 from arch.__future__ import reindexing
 from scipy import stats
 from statsmodels.stats.diagnostic import acorr_ljungbox
-import warnings
-warnings.filterwarnings("ignore")
+
+from deepdraft.core import save_figure
 
 
 # ─────────────────────────────────────────────
@@ -241,8 +241,7 @@ def residual_diagnostics(result) -> None:
     ax2.legend()
 
     plt.tight_layout()
-    plt.savefig("garch_diagnostics.png", dpi=150)
-    plt.show()
+    save_figure("garch_diagnostics.png", dpi=150)
 
 
 # ─────────────────────────────────────────────
@@ -327,8 +326,7 @@ def plot_returns_and_volatility(returns: pd.Series,
 
     plt.suptitle("GARCH — Returns & Conditional Volatility")
     plt.tight_layout()
-    plt.savefig("garch_volatility.png", dpi=150)
-    plt.show()
+    save_figure("garch_volatility.png", dpi=150)
 
 
 def plot_var(returns: pd.Series, var_series: pd.Series,
@@ -347,8 +345,7 @@ def plot_var(returns: pd.Series, var_series: pd.Series,
     plt.title(f"GARCH — VaR({confidence*100:.0f}%) Backtesting")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("garch_var.png", dpi=150)
-    plt.show()
+    save_figure("garch_var.png", dpi=150)
 
 
 def plot_volatility_forecast(forecast_df: pd.DataFrame) -> None:
@@ -360,8 +357,7 @@ def plot_volatility_forecast(forecast_df: pd.DataFrame) -> None:
     plt.ylabel("Forecasted Volatility (%)")
     plt.title("GARCH — Multi-Step Volatility Forecast")
     plt.tight_layout()
-    plt.savefig("garch_forecast.png", dpi=150)
-    plt.show()
+    save_figure("garch_forecast.png", dpi=150)
 
 
 # ─────────────────────────────────────────────

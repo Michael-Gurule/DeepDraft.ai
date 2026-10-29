@@ -54,8 +54,8 @@ from sklearn.metrics import (
 from sklearn.inspection import permutation_importance
 from sklearn.datasets import make_classification, make_regression
 from scipy.stats import randint
-import warnings
-warnings.filterwarnings("ignore")
+
+from deepdraft.core import fast_or, save_figure
 
 
 # ─────────────────────────────────────────────
@@ -110,7 +110,7 @@ def load_regression_data(n_samples: int = 600):
 
 # Placeholder: adjust these parameters for your dataset
 CLASSIFIER_CONFIG = {
-    "n_estimators": 200,          # number of trees; more = better but slower
+    "n_estimators": fast_or(200, 20),  # number of trees; more = better but slower
     "max_features": "sqrt",       # features per split: 'sqrt', 'log2', float, or None
     "max_depth": None,            # None = unlimited; restrict for interpretability
     "min_samples_leaf": 1,        # minimum samples at leaf; increase for noisy data
@@ -123,7 +123,7 @@ CLASSIFIER_CONFIG = {
 }
 
 REGRESSOR_CONFIG = {
-    "n_estimators": 200,
+    "n_estimators": fast_or(200, 20),
     "max_features": 1.0,          # fraction of features; try 0.33–1.0 for regression
     "max_depth": None,
     "min_samples_leaf": 1,
@@ -246,8 +246,7 @@ def plot_gini_importance(model, feature_names: list, top_n: int = 15) -> None:
     plt.title(f"Random Forest — Top {top_n} Feature Importances (Gini)")
     plt.xticks(rotation=45, ha="right")
     plt.tight_layout()
-    plt.savefig("random_forest_gini_importance.png", dpi=150)
-    plt.show()
+    save_figure("random_forest_gini_importance.png", dpi=150)
 
 
 def plot_permutation_importance(model, X_test: np.ndarray, y_test: np.ndarray,
@@ -275,7 +274,7 @@ def plot_permutation_importance(model, X_test: np.ndarray, y_test: np.ndarray,
     plt.boxplot(
         result.importances[sorted_idx].T,
         vert=True,
-        labels=[feature_names[i] for i in sorted_idx],
+        tick_labels=[feature_names[i] for i in sorted_idx],
     )
     plt.axhline(0, color="red", linestyle="--", linewidth=1)
     plt.xlabel("Feature")
@@ -283,8 +282,7 @@ def plot_permutation_importance(model, X_test: np.ndarray, y_test: np.ndarray,
     plt.title(f"Random Forest — Permutation Importance (top {top_n})")
     plt.xticks(rotation=45, ha="right")
     plt.tight_layout()
-    plt.savefig("random_forest_permutation_importance.png", dpi=150)
-    plt.show()
+    save_figure("random_forest_permutation_importance.png", dpi=150)
 
 
 def plot_n_estimators_curve(X_train, y_train, X_test, y_test,
@@ -317,8 +315,7 @@ def plot_n_estimators_curve(X_train, y_train, X_test, y_test,
     plt.title("Random Forest — n_estimators Learning Curve")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("random_forest_n_estimators.png", dpi=150)
-    plt.show()
+    save_figure("random_forest_n_estimators.png", dpi=150)
 
 
 def plot_confusion_matrix(model, X_test: np.ndarray, y_test: np.ndarray) -> None:
@@ -327,8 +324,7 @@ def plot_confusion_matrix(model, X_test: np.ndarray, y_test: np.ndarray) -> None
     ConfusionMatrixDisplay(confusion_matrix(y_test, y_pred)).plot(cmap="Blues")
     plt.title("Random Forest — Confusion Matrix")
     plt.tight_layout()
-    plt.savefig("random_forest_confusion.png", dpi=150)
-    plt.show()
+    save_figure("random_forest_confusion.png", dpi=150)
 
 
 # ─────────────────────────────────────────────
@@ -352,12 +348,12 @@ def main():
 
     # Hyperparameter tuning
     print("\n=== Randomized Hyperparameter Search ===")
-    best_clf = tune_random_search(X_train, y_train)
+    best_clf = tune_random_search(X_train, y_train, n_iter=fast_or(30, 3))
     print("\nBest RF — Test Metrics:")
     evaluate_classifier(best_clf, X_test, y_test)
 
     # Visualizations
-    plot_n_estimators_curve(X_train, y_train, X_test, y_test)
+    plot_n_estimators_curve(X_train, y_train, X_test, y_test, max_trees=fast_or(300, 30))
     plot_gini_importance(clf, feature_names)
     plot_permutation_importance(clf, X_test, y_test, feature_names)
     plot_confusion_matrix(clf, X_test, y_test)

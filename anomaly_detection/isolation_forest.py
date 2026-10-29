@@ -21,7 +21,7 @@ Use Cases:
     - Network intrusion detection
     - Financial fraud detection
     - Manufacturing defect detection
-    - IoT sensor fault detection (e.g., Hyperion sensor health monitoring)
+    - IoT sensor fault detection
     - Log anomaly detection
     - Any high-dimensional, unlabeled dataset
 
@@ -60,8 +60,8 @@ from sklearn.metrics import (
 )
 from sklearn.datasets import make_blobs
 from sklearn.model_selection import GridSearchCV
-import warnings
-warnings.filterwarnings("ignore")
+
+from deepdraft.core import save_figure
 
 
 # ─────────────────────────────────────────────
@@ -257,8 +257,7 @@ def find_optimal_threshold(model, scaler, X: np.ndarray, y: np.ndarray) -> float
     plt.title("Isolation Forest — Threshold Analysis")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("iforest_threshold.png", dpi=150)
-    plt.show()
+    save_figure("iforest_threshold.png", dpi=150)
 
     print(f"Optimal threshold: {best_thresh:.4f}  (F1: {f1s[best_idx]:.4f})")
     return best_thresh
@@ -288,8 +287,7 @@ def plot_anomaly_scores(model, scaler, X: np.ndarray, y: np.ndarray) -> None:
     plt.title("Isolation Forest — Anomaly Score Distribution")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("iforest_scores.png", dpi=150)
-    plt.show()
+    save_figure("iforest_scores.png", dpi=150)
 
 
 def plot_2d_decision_boundary(model, scaler, X: np.ndarray, y: np.ndarray) -> None:
@@ -326,8 +324,7 @@ def plot_2d_decision_boundary(model, scaler, X: np.ndarray, y: np.ndarray) -> No
     plt.title(title)
     plt.legend()
     plt.tight_layout()
-    plt.savefig("iforest_boundary.png", dpi=150)
-    plt.show()
+    save_figure("iforest_boundary.png", dpi=150)
 
 
 def plot_confusion_matrix(model, scaler, X: np.ndarray, y: np.ndarray) -> None:
@@ -338,8 +335,7 @@ def plot_confusion_matrix(model, scaler, X: np.ndarray, y: np.ndarray) -> None:
                            display_labels=["Normal", "Anomaly"]).plot(cmap="Oranges")
     plt.title("Isolation Forest — Confusion Matrix")
     plt.tight_layout()
-    plt.savefig("iforest_confusion.png", dpi=150)
-    plt.show()
+    save_figure("iforest_confusion.png", dpi=150)
 
 
 # ─────────────────────────────────────────────

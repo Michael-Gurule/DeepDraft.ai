@@ -70,8 +70,8 @@ from sklearn.metrics import (
 )
 from sklearn.datasets import make_classification, make_regression
 from scipy.stats import uniform, randint
-import warnings
-warnings.filterwarnings("ignore")
+
+from deepdraft.core import fast_or, save_figure
 
 
 # ─────────────────────────────────────────────
@@ -131,7 +131,7 @@ def load_regression_data(n_samples: int = 800):
 # Placeholder: tune these parameters. See module docstring for priority order.
 CLASSIFIER_CONFIG = {
     # Core parameters
-    "n_estimators":      500,          # use large value + early_stopping_rounds
+    "n_estimators":      fast_or(500, 40),  # use large value + early_stopping_rounds
     "learning_rate":     0.05,         # eta; smaller requires more n_estimators
     "max_depth":         4,            # tree depth; 4–6 for most tasks
 
@@ -155,13 +155,12 @@ CLASSIFIER_CONFIG = {
     "eval_metric":       "auc",
     "tree_method":       "hist",       # 'hist' (fastest), 'exact', 'approx'; use 'gpu_hist' with GPU
     "device":            "cpu",        # Placeholder: set to 'cuda' for GPU acceleration
-    "use_label_encoder": False,
     "verbosity":         0,
     "random_state":      42,
 }
 
 REGRESSOR_CONFIG = {
-    "n_estimators":      500,
+    "n_estimators":      fast_or(500, 40),
     "learning_rate":     0.05,
     "max_depth":         4,
     "subsample":         0.8,
@@ -209,15 +208,15 @@ def train_with_early_stopping(
     Returns:
         fitted XGBoost model
     """
+    # Since xgboost 2.0, early_stopping_rounds is a constructor argument.
     if task == "classification":
-        model = xgb.XGBClassifier(**CLASSIFIER_CONFIG)
+        model = xgb.XGBClassifier(**CLASSIFIER_CONFIG, early_stopping_rounds=early_stopping_rounds)
     else:
-        model = xgb.XGBRegressor(**REGRESSOR_CONFIG)
+        model = xgb.XGBRegressor(**REGRESSOR_CONFIG, early_stopping_rounds=early_stopping_rounds)
 
     model.fit(
         X_train, y_train,
         eval_set=[(X_val, y_val)],
-        early_stopping_rounds=early_stopping_rounds,
         verbose=False,
     )
 
@@ -293,7 +292,7 @@ def tune_xgboost(X_train: np.ndarray, y_train: np.ndarray,
     }
 
     model = xgb.XGBClassifier(
-        n_estimators=200,
+        n_estimators=fast_or(200, 30),
         objective="binary:logistic",
         tree_method="hist",
         verbosity=0,
@@ -351,8 +350,7 @@ def plot_feature_importance(model, feature_names: list, importance_type: str = "
     plt.xlabel(f"Importance ({importance_type})")
     plt.title(f"XGBoost — Top {top_n} Feature Importances ({importance_type})")
     plt.tight_layout()
-    plt.savefig(f"xgboost_importance_{importance_type}.png", dpi=150)
-    plt.show()
+    save_figure(f"xgboost_importance_{importance_type}.png", dpi=150)
 
 
 def plot_learning_curve(model) -> None:
@@ -384,8 +382,7 @@ def plot_learning_curve(model) -> None:
     plt.title("XGBoost — Learning Curve")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("xgboost_learning_curve.png", dpi=150)
-    plt.show()
+    save_figure("xgboost_learning_curve.png", dpi=150)
 
 
 def plot_confusion_matrix(model, X_test: np.ndarray, y_test: np.ndarray) -> None:
@@ -394,8 +391,7 @@ def plot_confusion_matrix(model, X_test: np.ndarray, y_test: np.ndarray) -> None
     ConfusionMatrixDisplay(confusion_matrix(y_test, y_pred)).plot(cmap="Oranges")
     plt.title("XGBoost — Confusion Matrix")
     plt.tight_layout()
-    plt.savefig("xgboost_confusion.png", dpi=150)
-    plt.show()
+    save_figure("xgboost_confusion.png", dpi=150)
 
 
 # ─────────────────────────────────────────────
@@ -422,7 +418,7 @@ def main():
 
     # Hyperparameter tuning
     print("\n=== Randomized Hyperparameter Search ===")
-    best_model = tune_xgboost(X_train, y_train)
+    best_model = tune_xgboost(X_train, y_train, n_iter=fast_or(25, 3))
     print("\nBest XGBoost — Test Metrics:")
     evaluate_classifier(best_model, X_test, y_test)
 

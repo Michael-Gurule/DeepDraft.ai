@@ -21,10 +21,10 @@ Relationship to VAE:
     VAE adds a KL-divergence term to regularize the latent space and enable
     generative sampling. For anomaly detection, a plain AE is often sufficient
     and easier to threshold; VAE reconstruction probability can also serve as
-    an anomaly score (see frontier/vae.py).
+    an anomaly score (a VAE module is planned; see ROADMAP.md, Phase 4).
 
 Use Cases:
-    - Sensor fault detection (Hyperion sensor health monitoring)
+    - Sensor fault detection (industrial equipment health monitoring)
     - Network intrusion detection (traffic patterns)
     - Log anomaly detection (embedding log sequences)
     - Medical imaging (detecting abnormal scans)
@@ -60,8 +60,8 @@ from sklearn.metrics import (
     roc_auc_score, average_precision_score, confusion_matrix,
     ConfusionMatrixDisplay, precision_recall_curve
 )
-import warnings
-warnings.filterwarnings("ignore")
+
+from deepdraft.core import fast_or, save_figure
 
 DEVICE = (
     "cuda" if torch.cuda.is_available()
@@ -123,7 +123,7 @@ AE_CONFIG = {
     "dropout":        0.1,        # Placeholder: 0.0–0.3
     "lr":             1e-3,       # Placeholder: 1e-4 to 1e-2
     "batch_size":     64,         # Placeholder: 32–256
-    "epochs":         100,        # Placeholder: 50–200
+    "epochs":         fast_or(100, 3),  # Placeholder: 50–200
     "patience":       15,         # early stopping patience
 }
 
@@ -353,8 +353,7 @@ def plot_training_curve(history: dict) -> None:
     plt.title("Autoencoder — Training Curve")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("ae_training_curve.png", dpi=150)
-    plt.show()
+    save_figure("ae_training_curve.png", dpi=150)
 
 
 def plot_reconstruction_errors(model: nn.Module, scaler: StandardScaler,
@@ -377,8 +376,7 @@ def plot_reconstruction_errors(model: nn.Module, scaler: StandardScaler,
     plt.title("Autoencoder — Reconstruction Error Distribution")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("ae_reconstruction_errors.png", dpi=150)
-    plt.show()
+    save_figure("ae_reconstruction_errors.png", dpi=150)
 
 
 def plot_feature_reconstruction(model: nn.Module, scaler: StandardScaler,
@@ -408,8 +406,7 @@ def plot_feature_reconstruction(model: nn.Module, scaler: StandardScaler,
     plt.title("Autoencoder — Per-Feature Reconstruction Error")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("ae_feature_errors.png", dpi=150)
-    plt.show()
+    save_figure("ae_feature_errors.png", dpi=150)
 
 
 def plot_confusion_matrix(model: nn.Module, scaler: StandardScaler,
@@ -423,8 +420,7 @@ def plot_confusion_matrix(model: nn.Module, scaler: StandardScaler,
                            display_labels=["Normal", "Anomaly"]).plot(cmap="Oranges")
     plt.title("Autoencoder — Confusion Matrix")
     plt.tight_layout()
-    plt.savefig("ae_confusion.png", dpi=150)
-    plt.show()
+    save_figure("ae_confusion.png", dpi=150)
 
 
 # ─────────────────────────────────────────────
@@ -442,7 +438,7 @@ CONV_AE_CONFIG = {
     "input_w":       28,         # Placeholder: image width (or sequence_len for 1D)
     "lr":            1e-3,
     "batch_size":    64,
-    "epochs":        50,
+    "epochs":        fast_or(50, 2),
     "patience":      10,
     "use_1d":        False,      # Placeholder: True for 1D signals (sensor streams)
 }
@@ -690,7 +686,11 @@ def demo_conv_ae_on_mnist() -> None:
         return
 
     transform = transforms.Compose([transforms.ToTensor()])
-    mnist = datasets.MNIST("./data", train=True, download=True, transform=transform)
+    try:
+        mnist = datasets.MNIST("./data", train=True, download=True, transform=transform)
+    except Exception as exc:  # offline, firewalled, or download failed
+        print(f"MNIST download failed ({type(exc).__name__}); skipping Conv-AE MNIST demo.")
+        return
 
     # Normal = digit 1; anomaly = digit 7
     normal_idx   = (mnist.targets == 1).nonzero(as_tuple=True)[0]
@@ -707,7 +707,7 @@ def demo_conv_ae_on_mnist() -> None:
 
     cfg = {**CONV_AE_CONFIG, "in_channels": 1, "input_h": 28, "input_w": 28,
            "n_stages": 2, "base_channels": 16, "bottleneck_channels": 4,
-           "epochs": 20, "lr": 1e-3, "patience": 5, "use_1d": False}
+           "epochs": fast_or(20, 1), "lr": 1e-3, "patience": 5, "use_1d": False}
 
     print("\nTraining Conv-AE on MNIST (digit=1 as normal)...")
     model, history = train_conv_autoencoder(train_dl, val_dl, config=cfg)
@@ -729,8 +729,7 @@ def demo_conv_ae_on_mnist() -> None:
     plt.title(f"Conv-AE MNIST — AUC={auc:.4f}")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("conv_ae_mnist.png", dpi=150)
-    plt.show()
+    save_figure("conv_ae_mnist.png", dpi=150)
     print("  Saved conv_ae_mnist.png")
 
 

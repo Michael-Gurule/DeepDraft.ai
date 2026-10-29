@@ -65,8 +65,8 @@ from sklearn.metrics import (
 from sklearn.model_selection import GridSearchCV, StratifiedKFold
 from sklearn.datasets import make_blobs
 from sklearn.pipeline import Pipeline
-import warnings
-warnings.filterwarnings("ignore")
+
+from deepdraft.core import save_figure
 
 
 # ─────────────────────────────────────────────
@@ -242,8 +242,7 @@ def nu_gamma_sweep(X_train: np.ndarray, X_eval: np.ndarray,
             plt.text(j, i, f"{results[i,j]:.2f}", ha="center", va="center",
                      color="white" if results[i,j] < 0.75 else "black", fontsize=8)
     plt.tight_layout()
-    plt.savefig("ocsvm_heatmap.png", dpi=150)
-    plt.show()
+    save_figure("ocsvm_heatmap.png", dpi=150)
 
     best_i, best_j = np.unravel_index(np.argmax(results), results.shape)
     print(f"Best: nu={nus[best_i]}, gamma={gammas[best_j]}, "
@@ -266,8 +265,7 @@ def plot_decision_scores(pipeline: Pipeline, X: np.ndarray, y: np.ndarray) -> No
     plt.title("One-Class SVM — Anomaly Score Distribution")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("ocsvm_scores.png", dpi=150)
-    plt.show()
+    save_figure("ocsvm_scores.png", dpi=150)
 
 
 def plot_2d_boundary(pipeline: Pipeline, X: np.ndarray, y: np.ndarray) -> None:
@@ -309,8 +307,7 @@ def plot_2d_boundary(pipeline: Pipeline, X: np.ndarray, y: np.ndarray) -> None:
     plt.title(title)
     plt.legend()
     plt.tight_layout()
-    plt.savefig("ocsvm_boundary.png", dpi=150)
-    plt.show()
+    save_figure("ocsvm_boundary.png", dpi=150)
 
 
 def plot_confusion_matrix(pipeline: Pipeline, X: np.ndarray, y: np.ndarray) -> None:
@@ -320,8 +317,7 @@ def plot_confusion_matrix(pipeline: Pipeline, X: np.ndarray, y: np.ndarray) -> N
                            display_labels=["Normal", "Anomaly"]).plot(cmap="Oranges")
     plt.title("One-Class SVM — Confusion Matrix")
     plt.tight_layout()
-    plt.savefig("ocsvm_confusion.png", dpi=150)
-    plt.show()
+    save_figure("ocsvm_confusion.png", dpi=150)
 
 
 # ─────────────────────────────────────────────

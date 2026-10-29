@@ -36,7 +36,7 @@ Use Cases:
     - Inverse problems: identify diffusivity/viscosity from sensor data
     - Sparse-data regression constrained by known physics
     - Surrogate models for parametric PDE families
-    - Hyperion sensor dynamics: constrain trajectory estimates with kinematic PDEs
+    - Trajectory estimation constrained by kinematic equations
 
 Advantages:
     - Mesh-free: works on irregular domains
@@ -69,8 +69,8 @@ import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 from torch import autograd
-import warnings
-warnings.filterwarnings("ignore")
+
+from deepdraft.core import fast_or, save_figure
 
 DEVICE = (
     "cuda" if torch.cuda.is_available()
@@ -238,14 +238,14 @@ PINN_CONFIG = {
     "pde":           "burgers",    # Placeholder: 'burgers' or 'heat'
     "hidden_dim":    40,           # Placeholder: 20–100 neurons per layer
     "n_layers":      6,            # Placeholder: 4–8 layers
-    "n_interior":    10_000,       # Placeholder: 1k–50k interior collocation points
+    "n_interior":    fast_or(10_000, 500),  # Placeholder: 1k–50k interior collocation points
     "n_boundary":    200,          # Placeholder: 100–1000 boundary/IC points
     "lambda_pde":    1.0,          # Placeholder: PDE residual weight
     "lambda_bc":     10.0,         # Placeholder: increase if BC violation is large
     "lambda_ic":     10.0,         # Placeholder: increase if IC violation is large
     "lr_adam":       1e-3,
-    "n_adam":        5_000,        # Adam iterations
-    "n_lbfgs":       500,          # L-BFGS iterations (fine convergence)
+    "n_adam":        fast_or(5_000, 30),  # Adam iterations
+    "n_lbfgs":       fast_or(500, 3),  # L-BFGS iterations (fine convergence)
     "nu":            0.01 / np.pi, # Burgers viscosity
     "alpha":         0.1,          # Heat diffusivity
 }
@@ -330,6 +330,8 @@ def train_pinn(config: dict = None) -> tuple:
     total, l_pde, l_bc, l_ic = compute_loss()
     history["total"].append(total.item())
     history["pde"].append(l_pde.item())
+    history["bc"].append(l_bc.item())
+    history["ic"].append(l_ic.item())
     print(f"  L-BFGS done | total: {total.item():.2e} | pde: {l_pde.item():.2e}")
 
     return model, history
@@ -380,7 +382,7 @@ def train_inverse_pinn(true_nu: float = 0.01 / np.pi,
 
     # Generate synthetic 'measurements' from a forward solve
     forward_model, _ = train_pinn({**PINN_CONFIG, "nu": true_nu,
-                                    "n_adam": 3000, "n_lbfgs": 200})
+                                    "n_adam": fast_or(3000, 30), "n_lbfgs": fast_or(200, 3)})
     forward_model.eval()
 
     with torch.no_grad():
@@ -394,7 +396,7 @@ def train_inverse_pinn(true_nu: float = 0.01 / np.pi,
     pts       = sample_collocation(PINN_CONFIG["n_interior"], PINN_CONFIG["n_boundary"])
     optimizer = torch.optim.Adam(inv_model.parameters(), lr=1e-3)
 
-    for step in range(1, 3001):
+    for step in range(1, fast_or(3000, 30) + 1):
         optimizer.zero_grad()
 
         # Data loss on observations
@@ -453,8 +455,7 @@ def plot_solution(model: PINN, config: dict = None, title: str = None) -> None:
     plt.ylabel("t")
     plt.title(title or f"PINN Solution — {config['pde'].capitalize()} Equation")
     plt.tight_layout()
-    plt.savefig("pinn_solution.png", dpi=150)
-    plt.show()
+    save_figure("pinn_solution.png", dpi=150)
 
 
 def plot_loss_history(history: dict) -> None:
@@ -470,8 +471,7 @@ def plot_loss_history(history: dict) -> None:
     plt.title("PINN — Training Loss Components")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("pinn_loss.png", dpi=150)
-    plt.show()
+    save_figure("pinn_loss.png", dpi=150)
 
 
 def plot_solution_slices(model: PINN, t_slices: list = None) -> None:
@@ -499,8 +499,7 @@ def plot_solution_slices(model: PINN, t_slices: list = None) -> None:
     plt.title("PINN — Solution Profiles at Fixed Times")
     plt.legend(fontsize=8)
     plt.tight_layout()
-    plt.savefig("pinn_slices.png", dpi=150)
-    plt.show()
+    save_figure("pinn_slices.png", dpi=150)
 
 
 # ─────────────────────────────────────────────
@@ -581,14 +580,14 @@ def poisson_exact(x: np.ndarray, y: np.ndarray) -> np.ndarray:
 
 
 def train_poisson_2d(
-    n_interior: int = 5000,        # Placeholder: 5k–20k interior points
+    n_interior: int = fast_or(5000, 500),  # Placeholder: 5k–20k interior points
     n_boundary: int = 400,         # Placeholder: 200–1000 boundary points
     hidden_dim: int = 50,          # Placeholder: 30–100 neurons
     n_layers: int = 5,             # Placeholder: 4–7 layers
     lambda_bc: float = 100.0,      # Placeholder: BC weight; high to enforce exact BCs
     lr: float = 1e-3,              # Placeholder: Adam learning rate
-    n_adam: int = 5_000,           # Placeholder: Adam steps
-    n_lbfgs: int = 500,            # Placeholder: L-BFGS steps
+    n_adam: int = fast_or(5_000, 30),  # Placeholder: Adam steps
+    n_lbfgs: int = fast_or(500, 3),  # Placeholder: L-BFGS steps
 ) -> PINN2D:
     """
     Train a PINN to solve ∇²u = f on [0,1]² with homogeneous Dirichlet BCs.
@@ -663,8 +662,7 @@ def train_poisson_2d(
             ax.set_xlabel("x"); ax.set_ylabel("y")
         plt.suptitle(f"Poisson 2D PINN  (rel L² err = {rel_err:.2e})")
         plt.tight_layout()
-        plt.savefig("pinn_poisson2d.png", dpi=150)
-        plt.show()
+        save_figure("pinn_poisson2d.png", dpi=150)
         print("  Saved pinn_poisson2d.png")
     except ImportError:
         pass

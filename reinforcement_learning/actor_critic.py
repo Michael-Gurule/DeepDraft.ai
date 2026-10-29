@@ -21,9 +21,10 @@ Relationship to PPO:
     to prevent destructively large policy updates. A2C is simpler but
     less sample-efficient and more sensitive to learning rate.
 
-Relationship to Hyperion's MAPPO:
-    MAPPO = Multi-Agent PPO = many A2C actors + one centralized critic.
-    Understanding A2C is prerequisite to understanding MAPPO architecture.
+Relationship to MAPPO:
+    MAPPO (Multi-Agent PPO) gives each agent a PPO actor and trains a
+    centralized critic that sees the global state. Understanding A2C is a
+    prerequisite for both PPO and MAPPO.
 
 Use Cases:
     - Continuous and discrete control
@@ -54,8 +55,8 @@ import torch.optim as optim
 from torch.distributions import Normal, Categorical
 import gymnasium as gym
 from collections import deque
-import warnings
-warnings.filterwarnings("ignore")
+
+from deepdraft.core import fast_or, save_figure
 
 DEVICE = (
     torch.device("cuda") if torch.cuda.is_available()
@@ -432,7 +433,7 @@ A2C_CONFIG = {
     "entropy_coef":    0.01,
     "max_grad_norm":   0.5,
     "use_gae":         True,
-    "total_timesteps": 200_000,
+    "total_timesteps": fast_or(200_000, 2_000),
 }
 
 
@@ -520,9 +521,9 @@ def plot_training(episode_returns: list, window: int = 20) -> None:
         plt.plot(returns)
         plt.title("A2C — Episode Returns")
         plt.tight_layout()
-        plt.savefig("a2c_training.png", dpi=150)
-        plt.show()
+        save_figure("a2c_training.png", dpi=150)
         return
+    window = max(1, min(window, len(returns)))  # short runs (fast mode) have few episodes
     smoothed = np.convolve(returns, np.ones(window) / window, mode="valid")
     plt.figure(figsize=(10, 4))
     plt.plot(returns,  alpha=0.3, color="green", label="Episode Return")
@@ -532,8 +533,7 @@ def plot_training(episode_returns: list, window: int = 20) -> None:
     plt.title("A2C — Training Returns")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("a2c_training.png", dpi=150)
-    plt.show()
+    save_figure("a2c_training.png", dpi=150)
 
 
 # ─────────────────────────────────────────────

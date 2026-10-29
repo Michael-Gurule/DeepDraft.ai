@@ -56,8 +56,8 @@ from sklearn.metrics import (
     accuracy_score, roc_auc_score, classification_report,
     mean_squared_error, r2_score,
 )
-import warnings
-warnings.filterwarnings("ignore")
+
+from deepdraft.core import fast_or, save_figure
 
 try:
     import lightgbm as lgb
@@ -75,7 +75,7 @@ CONFIG_CLF = {
     "num_leaves":       31,               # # Placeholder: primary complexity knob (< 2^max_depth)
     "max_depth":        -1,               # # Placeholder: -1 = unlimited; set 6-12 to cap depth
     "learning_rate":    0.05,             # # Placeholder:
-    "n_estimators":     500,              # # Placeholder: use early stopping to find actual count
+    "n_estimators":     fast_or(500, 40),  # # Placeholder: use early stopping to find actual count
     "min_data_in_leaf": 20,               # # Placeholder:
     "feature_fraction": 0.9,             # # Placeholder: column subsampling per tree
     "bagging_fraction": 0.8,             # # Placeholder: row subsampling
@@ -97,7 +97,7 @@ CONFIG_REG = {**CONFIG_CLF, "objective": "regression", "metric": "rmse"}
 # ─────────────────────────────────────────────
 
 def generate_classification_data(
-    n_samples: int = 5000,
+    n_samples: int = fast_or(5000, 800),
     n_features: int = 20,
     n_informative: int = 10,
     n_classes: int = 2,
@@ -113,7 +113,7 @@ def generate_classification_data(
 
 
 def generate_regression_data(
-    n_samples: int = 5000,
+    n_samples: int = fast_or(5000, 800),
     n_features: int = 20,
     seed: int = 42,
 ) -> tuple:
@@ -125,7 +125,7 @@ def generate_regression_data(
     return train_test_split(X, y, test_size=0.2, random_state=seed)
 
 
-def make_categorical_dataset(n_samples: int = 3000, seed: int = 42) -> tuple:
+def make_categorical_dataset(n_samples: int = fast_or(3000, 600), seed: int = 42) -> tuple:
     """
     Demo dataset with mixed types — replace with real categorical data.
     LightGBM handles categoricals natively when columns are int32 dtype
@@ -140,7 +140,10 @@ def make_categorical_dataset(n_samples: int = 3000, seed: int = 42) -> tuple:
         "education":  rng.choice([0, 1, 2, 3, 4], n).astype(np.int32),  # categorical
         "score":      rng.normal(600, 100, n),
     })
-    y = (df["income"] * 0.3 + df["score"] * 100 + rng.normal(0, 5000, n) > 30000).astype(int)
+    # Threshold at the median so both classes occur (a fixed threshold of
+    # 30000 made nearly every label 1, leaving ROC-AUC undefined).
+    signal = df["income"] * 0.3 + df["score"] * 100 + rng.normal(0, 5000, n)
+    y = (signal > np.median(signal)).astype(int)
     X_train, X_test, y_train, y_test = train_test_split(
         df, y, test_size=0.2, random_state=seed, stratify=y
     )
@@ -291,8 +294,7 @@ def plot_feature_importance(
     ax.set_title(f"LightGBM Feature Importance (top {top_k})")
     ax.grid(True, alpha=0.3, axis="x")
     plt.tight_layout()
-    plt.savefig("lgbm_feature_importance.png", dpi=150)
-    plt.show()
+    save_figure("lgbm_feature_importance.png", dpi=150)
     print("Saved: lgbm_feature_importance.png")
     return df
 
@@ -312,7 +314,7 @@ def tune_num_leaves(
     """
     if not HAS_LGB:
         return pd.DataFrame()
-    leaf_values = leaf_values or [15, 31, 63, 127, 255]   # # Placeholder:
+    leaf_values = leaf_values or fast_or([15, 31, 63, 127, 255], [15, 31])   # # Placeholder:
     results = []
     for nl in leaf_values:
         cfg = {**CONFIG_CLF, "num_leaves": nl}
@@ -330,8 +332,7 @@ def tune_num_leaves(
     ax.set_title("LightGBM — num_leaves Sweep")
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.savefig("lgbm_leaves_sweep.png", dpi=150)
-    plt.show()
+    save_figure("lgbm_leaves_sweep.png", dpi=150)
     return df
 
 
@@ -421,8 +422,7 @@ def plot_learning_curves(model, X_val, y_val):
     ax.set_title("LightGBM Learning Curves")
     ax.legend(); ax.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.savefig("lgbm_learning_curves.png", dpi=150)
-    plt.show()
+    save_figure("lgbm_learning_curves.png", dpi=150)
     print("Saved: lgbm_learning_curves.png")
 
 

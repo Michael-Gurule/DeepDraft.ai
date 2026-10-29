@@ -51,8 +51,8 @@ from sklearn.metrics import (
 )
 from sklearn.datasets import make_classification, make_regression
 from sklearn.inspection import permutation_importance
-import warnings
-warnings.filterwarnings("ignore")
+
+from deepdraft.core import save_figure
 
 
 # ─────────────────────────────────────────────
@@ -228,8 +228,7 @@ def find_optimal_ccp_alpha(X_train, y_train, X_test, y_test) -> float:
     plt.title("Cost-Complexity Pruning Path")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("decision_tree_pruning.png", dpi=150)
-    plt.show()
+    save_figure("decision_tree_pruning.png", dpi=150)
 
     print(f"Optimal ccp_alpha: {best_alpha:.5f}  (test accuracy: {max(test_scores):.4f})")
     return best_alpha
@@ -300,8 +299,7 @@ def plot_tree_structure(model, feature_names: list, class_names: list | None = N
     )
     plt.title(f"Decision Tree (top {max_depth_display} levels)")
     plt.tight_layout()
-    plt.savefig("decision_tree_structure.png", dpi=150)
-    plt.show()
+    save_figure("decision_tree_structure.png", dpi=150)
 
 
 def print_rules(model, feature_names: list) -> None:
@@ -335,8 +333,7 @@ def plot_feature_importance(model, feature_names: list) -> None:
     plt.ylabel("Gini Importance")
     plt.title("Decision Tree — Feature Importances")
     plt.tight_layout()
-    plt.savefig("decision_tree_importance.png", dpi=150)
-    plt.show()
+    save_figure("decision_tree_importance.png", dpi=150)
 
 
 def plot_confusion_matrix(model, X_test: np.ndarray, y_test: np.ndarray) -> None:
@@ -345,8 +342,7 @@ def plot_confusion_matrix(model, X_test: np.ndarray, y_test: np.ndarray) -> None
     ConfusionMatrixDisplay(confusion_matrix(y_test, y_pred)).plot(cmap="Blues")
     plt.title("Decision Tree — Confusion Matrix")
     plt.tight_layout()
-    plt.savefig("decision_tree_confusion.png", dpi=150)
-    plt.show()
+    save_figure("decision_tree_confusion.png", dpi=150)
 
 
 # ─────────────────────────────────────────────

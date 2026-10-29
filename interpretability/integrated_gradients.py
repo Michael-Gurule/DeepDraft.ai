@@ -61,6 +61,8 @@ Fine-Tuning Recommendations:
        apply threshold to show only top-k% attributions.
 """
 
+from collections.abc import Callable
+
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
@@ -71,8 +73,8 @@ from torch.utils.data import DataLoader, TensorDataset
 from sklearn.datasets import load_breast_cancer
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-import warnings
-warnings.filterwarnings("ignore")
+
+from deepdraft.core import fast_or, save_figure
 
 # ─────────────────────────────────────────────
 # DEVICE
@@ -165,10 +167,10 @@ class MLP(nn.Module):
 TRAINING_CONFIG = {
     "hidden_dims": [128, 64],
     "dropout":     0.2,
-    "epochs":      50,
+    "epochs":      fast_or(50, 2),
     "batch_size":  64,
     "lr":          1e-3,
-    "n_steps_ig":  100,             # Placeholder: 50–300 for Integrated Gradients
+    "n_steps_ig":  fast_or(100, 20),  # Placeholder: 50–300 for Integrated Gradients
 }
 
 
@@ -282,7 +284,7 @@ class IntegratedGradients:
     def attribute(
         self,
         x: torch.Tensor,
-        target_fn: callable | None = None,
+        target_fn: Callable | None = None,
     ) -> tuple[torch.Tensor, float]:
         """
         Compute Integrated Gradients for input x.
@@ -387,8 +389,7 @@ def plot_global_attribution(
     plt.xlabel("Mean |Integrated Gradient|")
     plt.title(title)
     plt.tight_layout()
-    plt.savefig(filename, dpi=150)
-    plt.show()
+    save_figure(filename, dpi=150)
 
 
 def plot_sample_attribution(
@@ -429,8 +430,7 @@ def plot_sample_attribution(
         title += f" (p(y=1)={prediction:.3f})"
     ax.set_title(title)
     plt.tight_layout()
-    plt.savefig(filename, dpi=150)
-    plt.show()
+    save_figure(filename, dpi=150)
 
 
 def plot_completeness_check(errors: np.ndarray, filename: str = "ig_completeness.png") -> None:
@@ -450,8 +450,7 @@ def plot_completeness_check(errors: np.ndarray, filename: str = "ig_completeness
     plt.title("Integrated Gradients — Completeness Error")
     plt.legend()
     plt.tight_layout()
-    plt.savefig(filename, dpi=150)
-    plt.show()
+    save_figure(filename, dpi=150)
 
 
 def plot_attribution_heatmap(
@@ -487,8 +486,7 @@ def plot_attribution_heatmap(
     ax.set_ylabel("Sample index")
     ax.set_title(f"IG Attribution Heatmap (top {top_k} features, {n_samples} samples)")
     plt.tight_layout()
-    plt.savefig(filename, dpi=150)
-    plt.show()
+    save_figure(filename, dpi=150)
 
 
 def plot_training_history(history: dict, filename: str = "ig_training.png") -> None:
@@ -499,8 +497,7 @@ def plot_training_history(history: dict, filename: str = "ig_training.png") -> N
     axes[1].plot(epochs, history["acc"]);   axes[1].set_title("Accuracy"); axes[1].set_xlabel("Epoch")
     plt.suptitle("MLP Training History")
     plt.tight_layout()
-    plt.savefig(filename, dpi=150)
-    plt.show()
+    save_figure(filename, dpi=150)
 
 
 # ─────────────────────────────────────────────

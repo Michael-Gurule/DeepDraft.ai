@@ -58,8 +58,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.stats import norm
 from scipy.optimize import brentq
-import warnings
-warnings.filterwarnings("ignore")
+
+from deepdraft.core import save_figure
 
 
 # ─────────────────────────────────────────────
@@ -310,8 +310,7 @@ def plot_option_payoff(S: float, K: float, T: float, r: float,
 
     plt.suptitle(f"Black-Scholes Option Price  (σ={sigma:.0%}, T={T:.2f}yr, r={r:.0%})")
     plt.tight_layout()
-    plt.savefig("bs_payoff.png", dpi=150)
-    plt.show()
+    save_figure("bs_payoff.png", dpi=150)
 
 
 def plot_greeks_profile(S: float, K: float, T: float, r: float,
@@ -347,8 +346,7 @@ def plot_greeks_profile(S: float, K: float, T: float, r: float,
     axes[-1].axis("off")
     plt.suptitle(f"Black-Scholes Greeks  (K={K}, T={T:.2f}yr, σ={sigma:.0%})")
     plt.tight_layout()
-    plt.savefig("bs_greeks.png", dpi=150)
-    plt.show()
+    save_figure("bs_greeks.png", dpi=150)
 
 
 def plot_volatility_smile(S: float, T: float, r: float,
@@ -382,8 +380,7 @@ def plot_volatility_smile(S: float, T: float, r: float,
     plt.title(f"Implied Volatility Smile  (T={T:.2f}yr)")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("bs_vol_smile.png", dpi=150)
-    plt.show()
+    save_figure("bs_vol_smile.png", dpi=150)
 
 
 def plot_price_vs_volatility(S: float, K: float, T: float, r: float) -> None:
@@ -403,8 +400,7 @@ def plot_price_vs_volatility(S: float, K: float, T: float, r: float) -> None:
     plt.title(f"Option Price vs Volatility  (S={S}, K={K}, T={T:.2f}yr)")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("bs_price_vs_vol.png", dpi=150)
-    plt.show()
+    save_figure("bs_price_vs_vol.png", dpi=150)
 
 
 # ─────────────────────────────────────────────

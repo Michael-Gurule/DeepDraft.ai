@@ -38,7 +38,7 @@ Use Cases:
     - Surrogate for parametric PDEs (generalize over IC/BC variations)
     - Weather forecasting: operator from initial conditions → future state
     - Material design: map loading conditions → stress fields
-    - Hyperion: operator from sensor readings → state estimate across time
+    - State estimation: operator from sensor readings → state across time
     - Drug discovery: map molecular structure → binding affinity field
 
 Fine-Tuning Recommendations:
@@ -59,8 +59,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset
-import warnings
-warnings.filterwarnings("ignore")
+
+from deepdraft.core import fast_or, save_figure
 
 DEVICE = (
     "cuda" if torch.cuda.is_available()
@@ -111,10 +111,10 @@ def generate_antiderivative_data(n_functions: int = 2000,
         u       = u.astype(np.float32)
         u_samples[i] = u
 
-        # Antiderivative via cumulative trapz
+        # Antiderivative via the trapezoidal rule
         for j, y in enumerate(y_queries):
             idx = int(y * (m_sensors - 1))
-            Gu_samples[i, j] = np.trapz(u[:idx+1],
+            Gu_samples[i, j] = np.trapezoid(u[:idx+1],
                                           x_sensors[:idx+1]) if idx > 0 else 0.0
 
     print(f"  Input functions: {u_samples.shape}  |  "
@@ -262,7 +262,7 @@ DEEPONET_CONFIG = {
     "n_layers":    4,      # Placeholder: 3–6 for both branch and trunk
     "dropout":     0.0,    # Placeholder: 0.0–0.2 for regularization
     "lr":          1e-3,
-    "epochs":      200,
+    "epochs":      fast_or(200, 2),
     "batch_size":  128,
     "patience":    20,
 }
@@ -410,8 +410,7 @@ def plot_training_curves(history: dict) -> None:
     plt.title("DeepONet — Training Curve")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("deeponet_training.png", dpi=150)
-    plt.show()
+    save_figure("deeponet_training.png", dpi=150)
 
 
 def plot_operator_predictions(eval_results: dict, data: dict,
@@ -441,8 +440,7 @@ def plot_operator_predictions(eval_results: dict, data: dict,
 
     plt.suptitle("DeepONet — Operator Approximation (Antiderivative)")
     plt.tight_layout()
-    plt.savefig("deeponet_predictions.png", dpi=150)
-    plt.show()
+    save_figure("deeponet_predictions.png", dpi=150)
 
 
 def plot_error_distribution(eval_results: dict, data: dict) -> None:
@@ -461,8 +459,7 @@ def plot_error_distribution(eval_results: dict, data: dict) -> None:
     plt.title("DeepONet — Error Distribution")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("deeponet_errors.png", dpi=150)
-    plt.show()
+    save_figure("deeponet_errors.png", dpi=150)
 
 
 def plot_trunk_basis(model: DeepONet, n_basis: int = 8) -> None:
@@ -484,8 +481,7 @@ def plot_trunk_basis(model: DeepONet, n_basis: int = 8) -> None:
     plt.title("DeepONet — Learned Trunk Basis Functions")
     plt.legend(fontsize=7, ncol=4)
     plt.tight_layout()
-    plt.savefig("deeponet_basis.png", dpi=150)
-    plt.show()
+    save_figure("deeponet_basis.png", dpi=150)
 
 
 # ─────────────────────────────────────────────
@@ -497,7 +493,7 @@ def main():
 
     # Generate antiderivative operator data
     print("\nGenerating operator dataset (antiderivative)...")
-    data = generate_antiderivative_data(n_functions=3000, m_sensors=100, n_query=100)
+    data = generate_antiderivative_data(n_functions=fast_or(3000, 200), m_sensors=100, n_query=fast_or(100, 20))
 
     # Train DeepONet
     print("\nTraining DeepONet...")

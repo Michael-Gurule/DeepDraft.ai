@@ -26,7 +26,7 @@ Resampling Strategies:
     - Residual: hybrid that keeps high-weight particles deterministically
 
 Use Cases:
-    - Multi-target tracking (Hyperion UAV/sensor localization)
+    - Multi-target tracking (radar, drone, and sensor localization)
     - Robot localization (Monte Carlo Localization)
     - Financial state estimation (stochastic volatility models)
     - GPS/IMU fusion under non-linear dynamics
@@ -57,8 +57,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from dataclasses import dataclass, field
 from typing import Callable, Optional
-import warnings
-warnings.filterwarnings("ignore")
+
+from deepdraft.core import save_figure
 
 
 # ─────────────────────────────────────────────
@@ -89,7 +89,7 @@ class StateSpaceModel:
             position  += velocity * dt + process_noise
             velocity  += process_noise (random walk)
 
-        Replace with your system dynamics (e.g., from Hyperion's UAV motion model).
+        Replace with your system dynamics (e.g., a vehicle or robot motion model).
         """
         x_next = x.copy()
         x_next[:, 0] += x_next[:, 1] * dt  # pos += vel
@@ -335,8 +335,7 @@ def plot_tracking(estimates: np.ndarray, true_states: np.ndarray,
     axes[-1].set_xlabel("Time Step")
     plt.suptitle("Particle Filter — State Tracking", y=1.01)
     plt.tight_layout()
-    plt.savefig("pf_tracking.png", dpi=150)
-    plt.show()
+    save_figure("pf_tracking.png", dpi=150)
 
 
 def plot_effective_sample_size(pf: ParticleFilter) -> None:
@@ -356,8 +355,7 @@ def plot_effective_sample_size(pf: ParticleFilter) -> None:
     plt.title("Particle Filter — Effective Sample Size")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("pf_neff.png", dpi=150)
-    plt.show()
+    save_figure("pf_neff.png", dpi=150)
 
 
 def plot_particle_cloud(pf: ParticleFilter, true_states: np.ndarray,
@@ -382,8 +380,7 @@ def plot_particle_cloud(pf: ParticleFilter, true_states: np.ndarray,
     plt.title(f"Particle Cloud at t={len(pf.estimates)+step}")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("pf_particles.png", dpi=150)
-    plt.show()
+    save_figure("pf_particles.png", dpi=150)
 
 
 # ─────────────────────────────────────────────
@@ -417,8 +414,7 @@ def n_particles_sweep(true_states: np.ndarray, observations: np.ndarray,
     plt.title("Particle Filter — N Particles vs RMSE")
     plt.grid(True, which="both", alpha=0.3)
     plt.tight_layout()
-    plt.savefig("pf_n_sweep.png", dpi=150)
-    plt.show()
+    save_figure("pf_n_sweep.png", dpi=150)
 
 
 # ─────────────────────────────────────────────

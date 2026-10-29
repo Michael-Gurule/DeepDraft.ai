@@ -59,23 +59,23 @@ from sklearn.ensemble import (
     BaggingClassifier,
 )
 from sklearn.svm import SVC, SVR
-from sklearn.neighbors import KNeighborsClassifier
+from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import (
     accuracy_score, roc_auc_score, mean_squared_error, r2_score,
     classification_report,
 )
-import warnings
-warnings.filterwarnings("ignore")
+
+from deepdraft.core import fast_or, save_figure
 
 # ─────────────────────────────────────────────
 # CONFIG
 # ─────────────────────────────────────────────
 CONFIG = {
-    "n_samples":   5000,   # # Placeholder:
+    "n_samples":   fast_or(5000, 400),  # # Placeholder:
     "n_features":  20,     # # Placeholder:
-    "cv":          5,      # # Placeholder: folds for stacking out-of-fold
+    "cv":          fast_or(5, 2),  # # Placeholder: folds for stacking out-of-fold
     "seed":        42,
 }
 
@@ -118,12 +118,12 @@ def get_base_classifiers(seed: int = 42) -> list[tuple]:
     """
     return [
         ("lr",   make_pipeline(StandardScaler(), LogisticRegression(max_iter=500, random_state=seed))),
-        ("rf",   RandomForestClassifier(n_estimators=100, random_state=seed, n_jobs=-1)),
-        ("gbm",  GradientBoostingClassifier(n_estimators=100, max_depth=3, random_state=seed)),
+        ("rf",   RandomForestClassifier(n_estimators=fast_or(100, 20), random_state=seed, n_jobs=-1)),
+        ("gbm",  GradientBoostingClassifier(n_estimators=fast_or(100, 20), max_depth=3, random_state=seed)),
         ("svm",  make_pipeline(StandardScaler(), SVC(probability=True, random_state=seed))),
         ("knn",  make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=15))),
         ("mlp",  make_pipeline(StandardScaler(),
-                               MLPClassifier(hidden_layer_sizes=(64, 32), max_iter=300,
+                               MLPClassifier(hidden_layer_sizes=(64, 32), max_iter=fast_or(300, 30),
                                              random_state=seed))),
     ]
 
@@ -132,10 +132,10 @@ def get_base_regressors(seed: int = 42) -> list[tuple]:
     """# Placeholder: swap or add regression models."""
     return [
         ("lr",  make_pipeline(StandardScaler(), Ridge(alpha=1.0))),
-        ("rf",  RandomForestRegressor(n_estimators=100, random_state=seed, n_jobs=-1)),
-        ("gbm", GradientBoostingRegressor(n_estimators=100, max_depth=3, random_state=seed)),
+        ("rf",  RandomForestRegressor(n_estimators=fast_or(100, 20), random_state=seed, n_jobs=-1)),
+        ("gbm", GradientBoostingRegressor(n_estimators=fast_or(100, 20), max_depth=3, random_state=seed)),
         ("svr", make_pipeline(StandardScaler(), SVR(kernel="rbf"))),
-        ("knn", make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=15))),
+        ("knn", make_pipeline(StandardScaler(), KNeighborsRegressor(n_neighbors=15))),
     ]
 
 
@@ -231,7 +231,8 @@ def evaluate_classifiers(
         cv_auc = cross_val_score(model, X_train, y_train, cv=cv,
                                   scoring="roc_auc", n_jobs=-1).mean()
 
-        print(f"Acc={acc:.4f}  AUC={auc:.4f if auc else 'N/A'}  CV-AUC={cv_auc:.4f}")
+        auc_str = f"{auc:.4f}" if auc is not None else "N/A"
+        print(f"Acc={acc:.4f}  AUC={auc_str}  CV-AUC={cv_auc:.4f}")
         results.append({
             "model": name, "accuracy": acc,
             "test_auc": auc or 0.0, "cv_auc": cv_auc,
@@ -282,7 +283,12 @@ def compare_meta_learners(X_train, y_train, X_test, y_test,
         stk = StackingClassifier(estimators=base_estimators, final_estimator=meta,
                                   cv=cv, n_jobs=-1)
         stk.fit(X_train, y_train)
-        y_proba = stk.predict_proba(X_test)[:, 1]
+        # RidgeClassifier has no predict_proba; ROC-AUC only needs a ranking
+        # score, so fall back to decision_function.
+        if hasattr(stk, "predict_proba"):
+            y_proba = stk.predict_proba(X_test)[:, 1]
+        else:
+            y_proba = stk.decision_function(X_test)
         auc = roc_auc_score(y_test, y_proba)
         print(f"  Meta={meta_name:15s} | AUC={auc:.4f}")
         results.append({"meta_learner": meta_name, "auc": auc})
@@ -326,8 +332,7 @@ def plot_comparison(df_clf: pd.DataFrame, df_reg: pd.DataFrame = None):
         ax2.grid(True, alpha=0.3, axis="x")
 
     plt.tight_layout()
-    plt.savefig("stacking_voting_comparison.png", dpi=150)
-    plt.show()
+    save_figure("stacking_voting_comparison.png", dpi=150)
     print("Saved: stacking_voting_comparison.png")
 
 
@@ -338,8 +343,7 @@ def plot_meta_learner_comparison(df: pd.DataFrame):
     ax.set_title("Stacking — Meta-Learner Comparison")
     ax.grid(True, alpha=0.3, axis="y")
     plt.tight_layout()
-    plt.savefig("stacking_meta_learners.png", dpi=150)
-    plt.show()
+    save_figure("stacking_meta_learners.png", dpi=150)
     print("Saved: stacking_meta_learners.png")
 
 

@@ -39,7 +39,7 @@ Fine-tuning recommendations:
   t-SNE:
     - perplexity (#Placeholder: 30): effective neighbors (5–50); lower = local, higher = global
     - learning_rate (#Placeholder: "auto"): use "auto" in sklearn; or 10–1000
-    - n_iter (#Placeholder: 1000): more = better convergence
+    - max_iter (#Placeholder: 1000): more = better convergence
   UMAP:
     - n_neighbors (#Placeholder: 15): local vs global balance (5–200)
     - min_dist (#Placeholder: 0.1): tightness of embedding (0.0–0.99)
@@ -69,8 +69,8 @@ from sklearn.manifold import TSNE
 from sklearn.pipeline import make_pipeline
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import cross_val_score
-import warnings
-warnings.filterwarnings("ignore")
+
+from deepdraft.core import fast_or, save_figure
 
 try:
     import umap
@@ -87,7 +87,7 @@ CONFIG = {
     "ica_n_components":     10,      # # Placeholder:
     "lda_n_components":     None,    # # Placeholder: None = max (n_classes - 1)
     "tsne_perplexity":      30,      # # Placeholder:
-    "tsne_n_iter":          1000,    # # Placeholder:
+    "tsne_max_iter":        fast_or(1000, 250),   # 250 is scikit-learn's minimum    # # Placeholder:
     "tsne_n_components":    2,       # # Placeholder:
     "umap_n_neighbors":     15,      # # Placeholder:
     "umap_min_dist":        0.1,     # # Placeholder:
@@ -141,8 +141,7 @@ def explained_variance_plot(pca: PCA, threshold: float = 0.95):
     axes[1].legend(); axes[1].grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plt.savefig("pca_explained_variance.png", dpi=150)
-    plt.show()
+    save_figure("pca_explained_variance.png", dpi=150)
     print(f"Components needed for {threshold*100:.0f}% variance: {n_thresh}")
     return n_thresh
 
@@ -219,8 +218,7 @@ def ica_cocktail_party_demo(n_samples: int = 2000, seed: int = 42) -> dict:
         axes[i].legend(fontsize=8); axes[i].grid(True, alpha=0.3)
     axes[-1].set_xlabel("Time")
     plt.tight_layout()
-    plt.savefig("ica_cocktail_party.png", dpi=150)
-    plt.show()
+    save_figure("ica_cocktail_party.png", dpi=150)
     print("Saved: ica_cocktail_party.png")
     return {"S_true": S, "S_recovered": S_recovered, "A": A}
 
@@ -261,7 +259,7 @@ def fit_tsne(X: np.ndarray, cfg: dict) -> np.ndarray:
         n_components=cfg["tsne_n_components"],
         perplexity=cfg["tsne_perplexity"],
         learning_rate="auto",
-        n_iter=cfg["tsne_n_iter"],
+        max_iter=cfg["tsne_max_iter"],
         random_state=cfg["seed"],
         n_jobs=-1,
     )
@@ -336,7 +334,12 @@ def reconstruction_error(
         else:
             raise ValueError(method)
         X_red = model.fit_transform(X_scaled)
-        X_rec = model.inverse_transform(X_red)
+        if method == "factor":
+            # FactorAnalysis has no inverse_transform: reconstruct from the
+            # loading matrix W (components_) and the mean, X_rec = Z W + mu.
+            X_rec = X_red @ model.components_ + model.mean_
+        else:
+            X_rec = model.inverse_transform(X_red)
         err = np.mean((X_scaled - X_rec) ** 2)
         errors.append(err)
 
@@ -347,8 +350,7 @@ def reconstruction_error(
     ax.set_title(f"{method.upper()} Reconstruction Error")
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.savefig(f"{method}_reconstruction_error.png", dpi=150)
-    plt.show()
+    save_figure(f"{method}_reconstruction_error.png", dpi=150)
     return {"n_components": n_components_range, "errors": errors}
 
 
@@ -365,7 +367,7 @@ def plot_2d_embeddings(embeddings: dict, y: np.ndarray, title: str = ""):
         axes = [axes]
     fig.suptitle(f"Dimensionality Reduction — {title}", fontsize=12)
 
-    cmap = plt.cm.get_cmap("tab10", len(np.unique(y)))
+    cmap = plt.get_cmap("tab10", len(np.unique(y)))
     for ax, name in zip(axes, methods):
         Z = embeddings[name]
         sc = ax.scatter(Z[:, 0], Z[:, 1], c=y, cmap=cmap, s=10, alpha=0.7)
@@ -376,8 +378,7 @@ def plot_2d_embeddings(embeddings: dict, y: np.ndarray, title: str = ""):
     plt.colorbar(sc, ax=axes[-1], label="Class")
     plt.tight_layout()
     fname = f"dim_reduction_{title.lower().replace(' ', '_')}.png"
-    plt.savefig(fname, dpi=150)
-    plt.show()
+    save_figure(fname, dpi=150)
     print(f"Saved: {fname}")
 
 
@@ -397,8 +398,7 @@ def plot_pca_components(pca: PCA, feature_names: list = None, top_k: int = 6):
         ax.axvline(0, color="black", lw=0.5)
         ax.set_title(f"PC{i+1}")
     plt.tight_layout()
-    plt.savefig("pca_loadings.png", dpi=150)
-    plt.show()
+    save_figure("pca_loadings.png", dpi=150)
     print("Saved: pca_loadings.png")
 
 
@@ -413,6 +413,8 @@ def main():
     # Load Digits dataset (8x8 images, 10 classes, 64 features)
     digits = load_digits()
     X, y = digits.data, digits.target
+    n_keep = fast_or(len(X), 300)          # fast mode: subsample for speed
+    X, y = X[:n_keep], y[:n_keep]
     feature_names = [f"pixel_{i}" for i in range(X.shape[1])]
     print(f"Dataset: Digits | shape={X.shape} | n_classes={len(np.unique(y))}")
 
@@ -424,7 +426,7 @@ def main():
 
     pca, X_pca, scaler = fit_pca(X, {**CONFIG, "pca_n_components": 2})
     plot_pca_components(pca_full, feature_names=feature_names)
-    reconstruction_error(X, method="pca", n_components_range=list(range(1, 40)))
+    reconstruction_error(X, method="pca", n_components_range=list(range(1, fast_or(40, 6))))
     pca_as_preprocessing(X, y, X, y)
 
     # ── LDA ────────────────────────────────────────────────────────

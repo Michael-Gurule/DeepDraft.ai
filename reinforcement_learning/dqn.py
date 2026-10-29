@@ -62,8 +62,8 @@ import torch.nn.functional as F
 from collections import deque
 import random
 import gymnasium as gym
-import warnings
-warnings.filterwarnings("ignore")
+
+from deepdraft.core import fast_or, save_figure
 
 DEVICE = (
     torch.device("cuda") if torch.cuda.is_available()
@@ -441,8 +441,8 @@ DQN_CONFIG = {
     "use_double":      True,
     "use_dueling":     True,
     "use_per":         False,
-    "total_timesteps": 100_000,
-    "learning_starts": 1000,           # steps before first update
+    "total_timesteps": fast_or(100_000, 1_500),
+    "learning_starts": fast_or(1000, 200),  # steps before first update
 }
 
 
@@ -524,6 +524,7 @@ def plot_training(episode_returns: list, losses: list, window: int = 20) -> None
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 4))
 
     returns  = np.array(episode_returns)
+    window = max(1, min(window, len(returns)))  # short runs (fast mode) have few episodes
     smoothed = np.convolve(returns, np.ones(window) / window, mode="valid")
     ax1.plot(returns,  alpha=0.3, color="steelblue")
     ax1.plot(range(window - 1, len(returns)), smoothed, color="steelblue", linewidth=2)
@@ -539,8 +540,7 @@ def plot_training(episode_returns: list, losses: list, window: int = 20) -> None
 
     plt.suptitle("DQN (Double + Dueling)")
     plt.tight_layout()
-    plt.savefig("dqn_training.png", dpi=150)
-    plt.show()
+    save_figure("dqn_training.png", dpi=150)
 
 
 # ─────────────────────────────────────────────

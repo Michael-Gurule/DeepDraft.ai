@@ -19,9 +19,9 @@ Expression Tree:
   Nodes are binary or unary operators; leaves are variables or constants.
   Example tree for "x₀² + sin(x₁)":
            +
-          / \
+          / \\
         pow   sin
-        / \    \
+        / \\    \\
       x₀   2   x₁
 
 Genetic operations:
@@ -62,12 +62,14 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from sklearn.metrics import r2_score
 
+from deepdraft.core import fast_or, save_figure
+
 # ─────────────────────────────────────────────
 # CONFIG
 # ─────────────────────────────────────────────
 CONFIG = {
-    "pop_size":         500,    # # Placeholder:
-    "n_generations":    50,     # # Placeholder:
+    "pop_size":         fast_or(500, 40),  # # Placeholder:
+    "n_generations":    fast_or(50, 3),  # # Placeholder:
     "max_depth":        4,      # # Placeholder:
     "tournament_size":  7,      # # Placeholder:
     "crossover_prob":   0.7,    # # Placeholder:
@@ -230,9 +232,15 @@ def subtree_crossover(p1: Node, p2: Node, rng: np.random.Generator) -> tuple[Nod
     nodes1 = c1.collect_nodes()
     nodes2 = c2.collect_nodes()
 
-    # Pick random cut points (skip root for simplicity)
-    n1 = nodes1[int(rng.integers(1, max(2, len(nodes1))))]
-    n2 = nodes2[int(rng.integers(1, max(2, len(nodes2))))]
+    # Pick random cut points. Skip the root when the tree has other nodes;
+    # a single-leaf tree can only be cut at its root.
+    def _cut_point(nodes: list[Node]) -> Node:
+        if len(nodes) == 1:
+            return nodes[0]
+        return nodes[int(rng.integers(1, len(nodes)))]
+
+    n1 = _cut_point(nodes1)
+    n2 = _cut_point(nodes2)
 
     # Swap the subtrees by modifying in-place
     n1.node_type, n2.node_type = n2.node_type, n1.node_type
@@ -615,8 +623,7 @@ def plot_symbolic_regression(
         ax.legend(); ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plt.savefig(f"symbolic_regression_{dataset_name}.png", dpi=150)
-    plt.show()
+    save_figure(f"symbolic_regression_{dataset_name}.png", dpi=150)
     print(f"Saved: symbolic_regression_{dataset_name}.png")
 
 
@@ -643,8 +650,7 @@ def plot_multi_benchmark_comparison(results: dict):
     axes[1].grid(True, alpha=0.3, axis="x")
 
     plt.tight_layout()
-    plt.savefig("symbolic_regression_benchmark.png", dpi=150)
-    plt.show()
+    save_figure("symbolic_regression_benchmark.png", dpi=150)
     print("Saved: symbolic_regression_benchmark.png")
 
 
@@ -723,7 +729,7 @@ def main():
 
     # ── Multi-benchmark comparison ──────────────────────────────────────
     print("\n=== Multi-Benchmark Comparison ===")
-    results = run_benchmarks({**CONFIG, "n_generations": 30})
+    results = run_benchmarks({**CONFIG, "n_generations": fast_or(30, 3)})
 
     print("\nSummary:")
     for name, m in results.items():

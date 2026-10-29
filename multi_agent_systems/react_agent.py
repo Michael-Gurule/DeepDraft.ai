@@ -30,7 +30,7 @@ This implementation provides:
     - A rule-based "mock LLM" for demonstrating the loop without an API call
     - Tool registry with arithmetic, search, and state tools
     - Full ReAct loop with scratchpad history
-    - Drop-in slot to swap in a real LLM backend (Claude, GPT, etc.)
+    - Drop-in slot to swap in a real LLM backend (any hosted or local model API)
 
 Use Cases:
     - Question-answering with tool use (retrieval, calculator, code execution)
@@ -62,6 +62,8 @@ Fine-Tuning Recommendations:
        can diagnose and retry rather than silently failing.
 """
 
+import ast
+import operator
 import re
 import json
 import math
@@ -71,8 +73,8 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from dataclasses import dataclass, field
 from typing import Callable
-import warnings
-warnings.filterwarnings("ignore")
+
+from deepdraft.core import save_figure
 
 
 # ─────────────────────────────────────────────
@@ -101,20 +103,59 @@ class Tool:
             return f"Error: {exc}"
 
 
+_BINARY_OPS = {
+    ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
+    ast.Div: operator.truediv, ast.FloorDiv: operator.floordiv,
+    ast.Mod: operator.mod, ast.Pow: operator.pow,
+}
+_UNARY_OPS = {ast.UAdd: operator.pos, ast.USub: operator.neg}
+_MATH_NAMES = {k: getattr(math, k) for k in dir(math) if not k.startswith("_")}
+_MATH_NAMES.update({"abs": abs, "round": round})
+_MAX_EXPONENT = 1000  # guard against 10**10**10 style denial of service
+
+
+def _eval_node(node: ast.AST):
+    """Recursively evaluate a whitelisted arithmetic AST node."""
+    if isinstance(node, ast.Expression):
+        return _eval_node(node.body)
+    if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+        return node.value
+    if isinstance(node, ast.BinOp) and type(node.op) in _BINARY_OPS:
+        left, right = _eval_node(node.left), _eval_node(node.right)
+        if isinstance(node.op, ast.Pow) and abs(right) > _MAX_EXPONENT:
+            raise ValueError("exponent too large")
+        return _BINARY_OPS[type(node.op)](left, right)
+    if isinstance(node, ast.UnaryOp) and type(node.op) in _UNARY_OPS:
+        return _UNARY_OPS[type(node.op)](_eval_node(node.operand))
+    if isinstance(node, ast.Name) and node.id in _MATH_NAMES:
+        value = _MATH_NAMES[node.id]
+        if callable(value):
+            raise ValueError(f"'{node.id}' is a function; call it, e.g. {node.id}(2)")
+        return value
+    if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+            and node.func.id in _MATH_NAMES and callable(_MATH_NAMES[node.func.id])
+            and not node.keywords):
+        return _MATH_NAMES[node.func.id](*[_eval_node(a) for a in node.args])
+    raise ValueError(f"unsupported expression element: {type(node).__name__}")
+
+
 def _calculator(expr: str) -> str:
     """
     Safe arithmetic evaluator.
 
-    Evaluates mathematical expressions — addition, subtraction, multiplication,
-    division, powers, parentheses, and math functions (sqrt, log, etc.).
+    Evaluates mathematical expressions: addition, subtraction, multiplication,
+    division, powers, parentheses, constants (pi, e), and math functions
+    (sqrt, log, sin, ...).
 
-    Blocks dangerous builtins; only whitelists math module functions.
+    The expression is parsed into an abstract syntax tree and only whitelisted
+    node types are evaluated. This matters because an LLM chooses the input:
+    Python's eval() cannot be sandboxed by removing builtins (attribute access
+    such as ().__class__.__base__.__subclasses__() reaches arbitrary classes),
+    so agent tools should never pass model output to eval().
     """
-    allowed_names = {k: getattr(math, k) for k in dir(math) if not k.startswith("_")}
-    allowed_names.update({"abs": abs, "round": round})
     try:
-        result = eval(expr, {"__builtins__": {}}, allowed_names)  # noqa: S307
-        return str(result)
+        tree = ast.parse(expr, mode="eval")
+        return str(_eval_node(tree))
     except Exception as exc:
         return f"CalculatorError: {exc}"
 
@@ -245,7 +286,7 @@ class MockLLM:
     where the return value contains "Thought: ... Action: Name[args]" or
     "Thought: ... Action: Finish[answer]".
 
-    Placeholder: swap this class with a Claude/GPT API call for production.
+    Placeholder: swap this class with a call to a hosted or local LLM API for production.
     """
 
     def __init__(self, tools: dict[str, Tool]):
@@ -563,8 +604,7 @@ def plot_trace(trace: AgentTrace, filename: str = "react_trace.png") -> None:
         fontsize=10, pad=10,
     )
     plt.tight_layout()
-    plt.savefig(filename, dpi=150)
-    plt.show()
+    save_figure(filename, dpi=150)
 
 
 def plot_evaluation_summary(eval_results: dict) -> None:
@@ -591,8 +631,7 @@ def plot_evaluation_summary(eval_results: dict) -> None:
 
     plt.suptitle("ReAct Agent — Evaluation Summary")
     plt.tight_layout()
-    plt.savefig("react_evaluation.png", dpi=150)
-    plt.show()
+    save_figure("react_evaluation.png", dpi=150)
 
 
 # ─────────────────────────────────────────────

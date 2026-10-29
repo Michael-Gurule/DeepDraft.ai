@@ -18,7 +18,7 @@ Key algorithms:
 
 Use Cases:
     - Financial regime detection (bull/bear/sideways market states)
-    - Time series segmentation (Hyperion context switching between modes)
+    - Time series segmentation (switching between operating modes)
     - Speech recognition (phoneme states)
     - Bioinformatics (gene/protein sequence analysis)
     - Activity recognition (sensor readings → walking/running/sitting)
@@ -53,8 +53,8 @@ import matplotlib.pyplot as plt
 from hmmlearn import hmm
 from sklearn.preprocessing import StandardScaler
 from scipy.stats import norm
-import warnings
-warnings.filterwarnings("ignore")
+
+from deepdraft.core import fast_or, save_figure
 
 
 # ─────────────────────────────────────────────
@@ -130,7 +130,7 @@ def generate_regime_data(
 HMM_CONFIG = {
     "n_components":    3,       # Placeholder: number of hidden states; select via AIC/BIC
     "covariance_type": "full",  # Placeholder: 'full', 'diag', 'tied', 'spherical'
-    "n_iter":          100,     # Placeholder: EM iterations
+    "n_iter":          fast_or(100, 15),  # Placeholder: EM iterations
     "tol":             1e-4,    # convergence threshold
     "random_state":    42,
 }
@@ -162,7 +162,7 @@ def build_hmm(config: dict = None) -> hmm.GaussianHMM:
 # ─────────────────────────────────────────────
 
 def select_n_states(X: np.ndarray, lengths: list,
-                    k_range: range = range(2, 8)) -> int:
+                    k_range: range = range(2, fast_or(8, 5))) -> int:
     """
     Select optimal number of hidden states via BIC.
 
@@ -179,7 +179,7 @@ def select_n_states(X: np.ndarray, lengths: list,
     for K in k_range:
         try:
             model = hmm.GaussianHMM(n_components=K, covariance_type="diag",
-                                     n_iter=100, random_state=42)
+                                     n_iter=fast_or(100, 15), random_state=42)
             model.fit(X, lengths)
             ll = model.score(X, lengths)
             # Free parameters: K-1 (initial) + K(K-1) (trans) + K*d (means) + K*d (vars)
@@ -203,8 +203,7 @@ def select_n_states(X: np.ndarray, lengths: list,
     plt.title("HMM — State Count Selection (BIC)")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("hmm_bic.png", dpi=150)
-    plt.show()
+    save_figure("hmm_bic.png", dpi=150)
 
     print(f"\n  Best K by BIC: {best_k}")
     return best_k
@@ -296,8 +295,7 @@ def plot_state_sequence(X: np.ndarray, inferred_states: np.ndarray,
 
     plt.suptitle("HMM — Inferred State Sequence", y=1.01)
     plt.tight_layout()
-    plt.savefig("hmm_states.png", dpi=150)
-    plt.show()
+    save_figure("hmm_states.png", dpi=150)
 
 
 def plot_transition_matrix(model: hmm.GaussianHMM) -> None:
@@ -313,8 +311,7 @@ def plot_transition_matrix(model: hmm.GaussianHMM) -> None:
     plt.ylabel("From State")
     plt.title("HMM — Learned Transition Matrix")
     plt.tight_layout()
-    plt.savefig("hmm_transition.png", dpi=150)
-    plt.show()
+    save_figure("hmm_transition.png", dpi=150)
 
 
 def plot_emission_distributions(model: hmm.GaussianHMM, X: np.ndarray) -> None:
@@ -341,8 +338,7 @@ def plot_emission_distributions(model: hmm.GaussianHMM, X: np.ndarray) -> None:
     plt.title("HMM — Emission Distributions")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("hmm_emissions.png", dpi=150)
-    plt.show()
+    save_figure("hmm_emissions.png", dpi=150)
 
 
 # ─────────────────────────────────────────────
@@ -353,7 +349,7 @@ def main():
     print("=== Hidden Markov Model — Regime Detection ===")
 
     # Placeholder: replace with your time series data
-    X, true_states, lengths = generate_regime_data(n_timesteps=1000, n_features=2)
+    X, true_states, lengths = generate_regime_data(n_timesteps=fast_or(1000, 300), n_features=2)
     print(f"Sequence length: {X.shape[0]} steps | {X.shape[1]} features")
     print(f"True state distribution: {np.bincount(true_states)}")
 

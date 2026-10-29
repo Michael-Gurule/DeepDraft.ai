@@ -27,7 +27,7 @@ Use Cases:
     - Hyperparameter tuning (neural network lr, batch_size, dropout)
     - Chemical/material discovery
     - A/B test parameter selection
-    - Marketing budget allocation across channels (Hyperion use case)
+    - Marketing budget allocation across channels
     - Engineering design optimization (simulation parameters)
     - Drug dosage optimization
 
@@ -58,8 +58,8 @@ from scipy.stats import norm
 from scipy.optimize import minimize
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import Matern, WhiteKernel, ConstantKernel as C
-import warnings
-warnings.filterwarnings("ignore")
+
+from deepdraft.core import fast_or, save_figure
 
 
 # ─────────────────────────────────────────────
@@ -158,11 +158,11 @@ def probability_of_improvement(X_cand: np.ndarray, gp: GaussianProcessRegressor,
 BO_CONFIG = {
     "bounds":           [(-5.0, 5.0)],    # Placeholder: [(low, high)] per dimension
     "n_initial_points": 5,                # Placeholder: 5–10 random seed points
-    "n_iterations":     25,               # Placeholder: budget of expensive evaluations
+    "n_iterations":     fast_or(25, 4),   # Placeholder: budget of expensive evaluations
     "acquisition":      "ei",             # Placeholder: 'ei', 'ucb', 'pi'
     "xi":               0.01,             # Placeholder: EI/PI exploration param
     "kappa":            2.0,              # Placeholder: UCB exploration param
-    "n_restarts":       10,               # restarts for acquisition maximization
+    "n_restarts":       fast_or(10, 2),   # restarts for acquisition maximization
 }
 
 GP_KERNEL = C(1.0) * Matern(length_scale=1.0, nu=2.5) + WhiteKernel(noise_level=0.1)
@@ -197,7 +197,7 @@ class BayesianOptimizer:
         self.y_obs  = []   # observed outputs
         self.gp     = GaussianProcessRegressor(
             kernel=GP_KERNEL,
-            n_restarts_optimizer=5,
+            n_restarts_optimizer=fast_or(5, 0),
             normalize_y=True,
         )
 
@@ -306,8 +306,7 @@ def plot_optimization_history(opt: BayesianOptimizer) -> None:
     plt.title("Bayesian Optimization — Convergence")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("bo_convergence.png", dpi=150)
-    plt.show()
+    save_figure("bo_convergence.png", dpi=150)
 
 
 def plot_surrogate_1d(opt: BayesianOptimizer, iteration: int = -1) -> None:
@@ -349,8 +348,7 @@ def plot_surrogate_1d(opt: BayesianOptimizer, iteration: int = -1) -> None:
     ax2.set_title("Acquisition Function (EI)")
 
     plt.tight_layout()
-    plt.savefig("bo_surrogate.png", dpi=150)
-    plt.show()
+    save_figure("bo_surrogate.png", dpi=150)
 
 
 def plot_acquisition_comparison(opt: BayesianOptimizer) -> None:
@@ -381,8 +379,7 @@ def plot_acquisition_comparison(opt: BayesianOptimizer) -> None:
     plt.title("Bayesian Optimization — Acquisition Function Comparison")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("bo_acquisitions.png", dpi=150)
-    plt.show()
+    save_figure("bo_acquisitions.png", dpi=150)
 
 
 # ─────────────────────────────────────────────

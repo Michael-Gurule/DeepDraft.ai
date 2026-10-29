@@ -26,7 +26,7 @@ Use Cases:
     - Marketing mix modeling + channel budget allocation
     - Financial forecasting with multiple instruments
     - Energy grid load forecasting with weather + time features
-    - Hyperion: multi-agent decision making with temporal context
+    - Retail and supply-chain forecasting with promotions as known future inputs
 
 Why TFT vs LSTM vs Transformer:
     - Vanilla Transformer: no temporal structure inductive bias
@@ -54,9 +54,10 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
-import warnings
-warnings.filterwarnings("ignore")
+
+from deepdraft.core import fast_or, save_figure
 
 DEVICE = (
     "cuda" if torch.cuda.is_available()
@@ -144,7 +145,8 @@ class TimeSeriesWindowDataset(Dataset):
         self.n_features  = series.shape[1]
 
     def __len__(self):
-        return len(self.series) - self.enc_len - self.dec_len
+        # Number of complete (encoder, decoder) windows; never negative.
+        return max(0, len(self.series) - self.enc_len - self.dec_len + 1)
 
     def __getitem__(self, idx):
         x = self.series[idx: idx + self.enc_len]
@@ -166,7 +168,7 @@ TFT_CONFIG = {
     "n_quantiles":         3,     # q10, q50, q90
     "lr":                  1e-3,  # Placeholder: 1e-4 to 1e-2
     "batch_size":          32,    # Placeholder: 16–128
-    "epochs":              50,    # Placeholder: 20–200
+    "epochs":              fast_or(50, 2),  # Placeholder: 20–200
     "patience":            10,
     "quantiles":           [0.1, 0.5, 0.9],
 }
@@ -199,7 +201,7 @@ class GatedResidualNetwork(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         residual = self.skip(x)
-        h        = torch.elu(self.fc1(x))
+        h        = F.elu(self.fc1(x))
         h        = self.dropout(h)
         h        = self.fc2(h)
         gate     = torch.sigmoid(self.gate_fc(x))
@@ -406,7 +408,9 @@ def train_tft(df: pd.DataFrame, entity_id: int = 0,
     enc, dec = config["encoder_len"], config["decoder_len"]
     split    = int(0.8 * len(series_norm))
     train_ds = TimeSeriesWindowDataset(series_norm[:split], enc, dec)
-    val_ds   = TimeSeriesWindowDataset(series_norm[split:], enc, dec)
+    # Start the validation slice enc steps early so its first window can use
+    # training history as context; every validation target lies after split.
+    val_ds   = TimeSeriesWindowDataset(series_norm[split - enc:], enc, dec)
 
     train_dl = DataLoader(train_ds, batch_size=config["batch_size"], shuffle=True)
     val_dl   = DataLoader(val_ds,   batch_size=config["batch_size"])
@@ -545,8 +549,7 @@ def plot_training_curve(history: dict) -> None:
     plt.title("TFT — Training Curve")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("tft_training.png", dpi=150)
-    plt.show()
+    save_figure("tft_training.png", dpi=150)
 
 
 def plot_forecast_quantiles(model: nn.Module, df: pd.DataFrame,
@@ -595,8 +598,7 @@ def plot_forecast_quantiles(model: nn.Module, df: pd.DataFrame,
 
     plt.suptitle(f"TFT — Quantile Forecasts (Entity {entity_id})")
     plt.tight_layout()
-    plt.savefig("tft_forecasts.png", dpi=150)
-    plt.show()
+    save_figure("tft_forecasts.png", dpi=150)
 
 
 # ─────────────────────────────────────────────

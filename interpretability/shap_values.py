@@ -8,7 +8,7 @@ Core idea:
     For a prediction f(x), the SHAP value φ_i of feature i is the average
     marginal contribution of feature i across all possible feature coalitions:
 
-    φ_i = Σ_{S ⊆ F\{i}} [|S|!(|F|-|S|-1)! / |F|!] * [f(S∪{i}) - f(S)]
+    φ_i = Σ_{S ⊆ F\\{i}} [|S|!(|F|-|S|-1)! / |F|!] * [f(S∪{i}) - f(S)]
 
     where F is the full feature set and S ranges over all subsets not containing i.
     This is the unique attribution satisfying: efficiency, symmetry, dummy, and additivity.
@@ -62,13 +62,13 @@ Fine-Tuning Recommendations:
 
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.datasets import load_breast_cancer, fetch_california_housing
+from sklearn.datasets import load_breast_cancer, load_diabetes, fetch_california_housing
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.inspection import permutation_importance
-import warnings
-warnings.filterwarnings("ignore")
+
+from deepdraft.core import fast_or, save_figure
 
 
 # ─────────────────────────────────────────────
@@ -96,10 +96,18 @@ def load_regression_data() -> tuple[np.ndarray, np.ndarray, list[str]]:
     """
     Load California housing dataset for regression.
 
+    Falls back to scikit-learn's bundled diabetes dataset when the download
+    is unavailable (offline machines, CI runners).
+
     Returns:
         X_train, X_test, y_train, y_test, feature_names
     """
-    data = fetch_california_housing()
+    try:
+        data = fetch_california_housing()
+    except Exception as exc:  # offline, firewalled, or download failed
+        print(f"California housing download failed ({type(exc).__name__}); "
+              "falling back to the bundled diabetes dataset.")
+        data = load_diabetes()
     X_train, X_test, y_train, y_test = train_test_split(
         data.data, data.target, test_size=0.2, random_state=42
     )
@@ -269,6 +277,7 @@ def plot_global_importance(
         top_k:        show only top K features
     """
     mean_abs = np.abs(shap_vals).mean(axis=0)
+    top_k = min(top_k, len(mean_abs))
     order = np.argsort(mean_abs)[::-1][:top_k]
 
     plt.figure(figsize=(8, max(4, top_k * 0.35)))
@@ -277,8 +286,7 @@ def plot_global_importance(
     plt.xlabel("Mean |SHAP value|")
     plt.title(title)
     plt.tight_layout()
-    plt.savefig(filename, dpi=150)
-    plt.show()
+    save_figure(filename, dpi=150)
 
 
 def plot_beeswarm(
@@ -301,6 +309,7 @@ def plot_beeswarm(
         max_display_points:  subsample for display if n_samples > this
     """
     mean_abs = np.abs(shap_vals).mean(axis=0)
+    top_k = min(top_k, len(mean_abs))
     order = np.argsort(mean_abs)[::-1][:top_k]
 
     # Subsample for display
@@ -318,7 +327,7 @@ def plot_beeswarm(
         sv_feat   = sv_display[:, feat_idx]
         feat_vals = X_display[:, feat_idx]
         # Normalize feature values to [0,1] for color
-        fv_norm = (feat_vals - feat_vals.min()) / (feat_vals.ptp() + 1e-10)
+        fv_norm = (feat_vals - feat_vals.min()) / (np.ptp(feat_vals) + 1e-10)
         colors  = cmap(fv_norm)
 
         # Jitter y-axis to spread points
@@ -336,8 +345,7 @@ def plot_beeswarm(
     plt.colorbar(sm, ax=ax, label="Feature value (low → high)", shrink=0.6)
 
     plt.tight_layout()
-    plt.savefig(filename, dpi=150)
-    plt.show()
+    save_figure(filename, dpi=150)
 
 
 def plot_waterfall(
@@ -387,8 +395,7 @@ def plot_waterfall(
                 fontsize=8, color="gray", ha="center")
 
     plt.tight_layout()
-    plt.savefig(filename, dpi=150)
-    plt.show()
+    save_figure(filename, dpi=150)
 
 
 def plot_dependence(
@@ -427,8 +434,7 @@ def plot_dependence(
     plt.axhline(0, color="gray", linestyle="--", linewidth=0.8)
     plt.title(f"SHAP Dependence: {feature_names[feature_idx]}")
     plt.tight_layout()
-    plt.savefig(filename, dpi=150)
-    plt.show()
+    save_figure(filename, dpi=150)
 
 
 # ─────────────────────────────────────────────
@@ -448,22 +454,23 @@ def main():
 
     # PermutationSHAP (model-agnostic; use shap.TreeExplainer for production speed)
     print("Computing SHAP values (this may take a moment)...")
-    explainer = PermutationSHAP(clf, background=X_train, n_permutations=50, use_proba=True)
-    shap_vals = explainer.shap_values(X_test[:100])   # explain first 100 test samples
+    n_explain = fast_or(100, 8)        # fast mode: explain fewer samples
+    explainer = PermutationSHAP(clf, background=X_train, n_permutations=fast_or(50, 2), use_proba=True)
+    shap_vals = explainer.shap_values(X_test[:n_explain])   # explain first 100 test samples
 
-    consistency = evaluate_explanation_consistency(shap_vals, X_test[:100], clf, explainer)
+    consistency = evaluate_explanation_consistency(shap_vals, X_test[:n_explain], clf, explainer)
     print(f"Efficiency axiom check — MAE: {consistency['efficiency_mae']:.4f} "
           f"(should be near 0 for exact methods)")
 
     plot_global_importance(shap_vals, feat_names, title="SHAP Importance — Breast Cancer",
                            filename="shap_global_importance_clf.png")
-    plot_beeswarm(shap_vals, X_test[:100], feat_names,
+    plot_beeswarm(shap_vals, X_test[:n_explain], feat_names,
                   title="SHAP Beeswarm — Breast Cancer",
                   filename="shap_beeswarm_clf.png")
     plot_waterfall(shap_vals, explainer.expected_value, feat_names, sample_idx=0,
                    title="SHAP Waterfall — Breast Cancer",
                    filename="shap_waterfall_clf.png")
-    plot_dependence(shap_vals, X_test[:100], feat_names, feature_idx=0,
+    plot_dependence(shap_vals, X_test[:n_explain], feat_names, feature_idx=0,
                     filename="shap_dependence_clf.png")
 
     # 2. Regression task (housing)
@@ -475,13 +482,13 @@ def main():
     r2 = reg.score(X_te, y_te)
     print(f"Test R²: {r2:.3f}")
 
-    reg_explainer = PermutationSHAP(reg, background=X_tr[:100], n_permutations=50)
-    reg_shap_vals = reg_explainer.shap_values(X_te[:50])
+    reg_explainer = PermutationSHAP(reg, background=X_tr[:100], n_permutations=fast_or(50, 2))
+    reg_shap_vals = reg_explainer.shap_values(X_te[:fast_or(50, 5)])
 
     plot_global_importance(reg_shap_vals, reg_feat_names,
                            title="SHAP Importance — California Housing",
                            filename="shap_global_importance_reg.png")
-    plot_beeswarm(reg_shap_vals, X_te[:50], reg_feat_names,
+    plot_beeswarm(reg_shap_vals, X_te[:fast_or(50, 5)], reg_feat_names,
                   title="SHAP Beeswarm — California Housing",
                   filename="shap_beeswarm_reg.png")
 

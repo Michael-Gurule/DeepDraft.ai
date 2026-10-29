@@ -66,6 +66,8 @@ import matplotlib.pyplot as plt
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
+from deepdraft.core import save_figure
+
 # ─────────────────────────────────────────────
 # CONFIG
 # ─────────────────────────────────────────────
@@ -551,8 +553,7 @@ def plot_tracking(results: dict):
     ax2.legend(); ax2.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plt.savefig("kalman_tracking.png", dpi=150)
-    plt.show()
+    save_figure("kalman_tracking.png", dpi=150)
     print("Saved: kalman_tracking.png")
 
 
@@ -579,8 +580,7 @@ def plot_pendulum(results: dict):
         ax.legend(fontsize=8); ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plt.savefig("kalman_pendulum.png", dpi=150)
-    plt.show()
+    save_figure("kalman_pendulum.png", dpi=150)
     print("Saved: kalman_pendulum.png")
 
 
@@ -614,8 +614,7 @@ def plot_uncertainty_bands(results: dict):
 
     axes[-1].set_xlabel("Time")
     plt.tight_layout()
-    plt.savefig("kalman_uncertainty.png", dpi=150)
-    plt.show()
+    save_figure("kalman_uncertainty.png", dpi=150)
     print("Saved: kalman_uncertainty.png")
 
 

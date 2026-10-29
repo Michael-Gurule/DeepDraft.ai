@@ -16,7 +16,7 @@ Mathematical formulation:
         Σ*        = K(X*,X*) - K(X*,X) [K(X,X) + σ²I]⁻¹ K(X,X*)
 
     The posterior uncertainty grows away from observed data — key for
-    uncertainty-aware predictions (Hyperion sensor fusion, allocation).
+    uncertainty-aware predictions (sensor fusion, active learning).
 
 Kernel Choices:
     RBF (Squared Exponential): smooth functions, length_scale controls correlation range.
@@ -64,8 +64,8 @@ from sklearn.gaussian_process.kernels import (
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import cross_val_score, KFold
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score, accuracy_score, roc_auc_score
-import warnings
-warnings.filterwarnings("ignore")
+
+from deepdraft.core import fast_or, save_figure
 
 
 # ─────────────────────────────────────────────
@@ -121,7 +121,7 @@ def get_kernels() -> dict:
 # Placeholder: swap kernel name or tune bounds
 GP_CONFIG = {
     "kernel":              "matern_25",    # Placeholder: 'rbf', 'matern_15', 'matern_25', 'rational_quadratic'
-    "n_restarts_optimizer": 5,             # Placeholder: 5–15 restarts for robust hyperparameter optimization
+    "n_restarts_optimizer": fast_or(5, 0),  # Placeholder: 5–15 restarts for robust hyperparameter optimization
     "normalize_y":          True,          # Placeholder: almost always True
     "alpha":                1e-10,         # Placeholder: jitter for numerical stability (increase if Cholesky fails)
 }
@@ -204,7 +204,7 @@ def compare_kernels(X_train: np.ndarray, y_train: np.ndarray,
     """
     results = {}
     for name, kernel in get_kernels().items():
-        gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=3,
+        gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=fast_or(3, 0),
                                        normalize_y=True)
         gp.fit(X_train, y_train)
         y_pred = gp.predict(X_test)
@@ -245,8 +245,7 @@ def plot_gp_posterior(model: GaussianProcessRegressor,
     plt.title("Gaussian Process Regression — Posterior")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("gp_posterior.png", dpi=150)
-    plt.show()
+    save_figure("gp_posterior.png", dpi=150)
 
 
 def plot_uncertainty(model: GaussianProcessRegressor,
@@ -264,8 +263,7 @@ def plot_uncertainty(model: GaussianProcessRegressor,
     plt.ylabel("Predictive Std σ(x)")
     plt.title("Gaussian Process — Predictive Uncertainty")
     plt.tight_layout()
-    plt.savefig("gp_uncertainty.png", dpi=150)
-    plt.show()
+    save_figure("gp_uncertainty.png", dpi=150)
 
 
 def plot_kernel_comparison(X_train: np.ndarray, y_train: np.ndarray,
@@ -276,7 +274,7 @@ def plot_kernel_comparison(X_train: np.ndarray, y_train: np.ndarray,
     axes = axes.ravel()
 
     for ax, (name, kernel) in zip(axes, kernels.items()):
-        gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=3,
+        gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=fast_or(3, 0),
                                        normalize_y=True)
         gp.fit(X_train, y_train)
         y_pred, y_std = gp.predict(X_test, return_std=True)
@@ -289,8 +287,7 @@ def plot_kernel_comparison(X_train: np.ndarray, y_train: np.ndarray,
 
     plt.suptitle("GP Kernel Comparison", fontsize=13)
     plt.tight_layout()
-    plt.savefig("gp_kernel_comparison.png", dpi=150)
-    plt.show()
+    save_figure("gp_kernel_comparison.png", dpi=150)
 
 
 # ─────────────────────────────────────────────
@@ -316,7 +313,7 @@ def generate_classification_data(
 
 def build_gp_classifier(
     kernel_name: str = "rbf",
-    n_restarts_optimizer: int = 3,          # Placeholder: 5–10 for production
+    n_restarts_optimizer: int = fast_or(3, 0),  # Placeholder: 5–10 for production
     multi_class: str = "one_vs_rest",       # Placeholder: 'one_vs_rest' or 'one_vs_one'
     max_iter_predict: int = 100,            # Placeholder: increase for convergence on hard problems
 ) -> GaussianProcessClassifier:
@@ -384,7 +381,7 @@ def evaluate_gp_classifier(
     print(f"  Confident preds (>0.5): {confident*100:.1f}%")
 
     cv_scores = cross_val_score(clf.__class__(kernel=clf.kernel_),
-                                X_train, y_train, cv=5, scoring="roc_auc")
+                                X_train, y_train, cv=fast_or(5, 2), scoring="roc_auc")
     print(f"  5-Fold CV AUC: {cv_scores.mean():.4f} ± {cv_scores.std():.4f}")
 
     return {"accuracy": acc, "roc_auc": auc}
@@ -419,8 +416,7 @@ def plot_gp_classification(
     plt.title(title)
     plt.xlabel("x₁"); plt.ylabel("x₂")
     plt.tight_layout()
-    plt.savefig("gp_classification.png", dpi=150)
-    plt.show()
+    save_figure("gp_classification.png", dpi=150)
     print("Saved gp_classification.png")
 
 

@@ -50,7 +50,7 @@ Use Cases:
     - Orbital mechanics (N-body gravitational systems)
     - Robotic joint dynamics (mechanical energy conservation)
     - Plasma physics, fluid mechanics (Hamiltonian structure)
-    - Hyperion UAV dynamics: enforce mechanical energy budget in trajectory learning
+    - Vehicle and robot dynamics: enforce energy conservation in trajectory learning
 
 Systems implemented:
     1. Simple pendulum:   H = (1/2)p² - cos(q)       (1 DOF)
@@ -75,8 +75,8 @@ import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 from torch import autograd
-import warnings
-warnings.filterwarnings("ignore")
+
+from deepdraft.core import fast_or, save_figure
 
 DEVICE = (
     "cuda" if torch.cuda.is_available()
@@ -291,7 +291,7 @@ HNN_CONFIG = {
     "hidden_dim": 200,    # Placeholder: 64–512; larger for complex Hamiltonians
     "n_layers":   3,      # Placeholder: 3–6
     "lr":         1e-3,
-    "epochs":     500,
+    "epochs":     fast_or(500, 20),
     "batch_size": 256,
 }
 
@@ -379,8 +379,8 @@ def leapfrog_rollout(model: HNN, q0: np.ndarray, p0: np.ndarray,
     for _ in range(n_steps):
         q.requires_grad_(True); p.requires_grad_(True)
         H   = model.hamiltonian(q, p)
-        dHdq = autograd.grad(H.sum(), q)[0]
-        dHdp = autograd.grad(H.sum(), p)[0]
+        # One grad call for both inputs: a second call would find the graph freed.
+        dHdq, dHdp = autograd.grad(H.sum(), (q, p))
 
         p_half = (p - dt/2 * dHdq).detach()
 
@@ -444,8 +444,7 @@ def compute_energy_drift(model_hnn: HNN, model_base: BaselineNODE,
     plt.title("Hamiltonian NN — Energy Conservation Comparison")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("hnn_energy.png", dpi=150)
-    plt.show()
+    save_figure("hnn_energy.png", dpi=150)
 
     print(f"  HNN   |ΔE| final: {abs(e_hnn[-1]  - e_true):.2e}")
     print(f"  Baseline |ΔE| final: {abs(e_base[-1] - e_true):.2e}")
@@ -473,8 +472,7 @@ def plot_phase_portrait(qs_true: np.ndarray, ps_true: np.ndarray,
     plt.title("Hamiltonian NN — Phase Portrait")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("hnn_phase.png", dpi=150)
-    plt.show()
+    save_figure("hnn_phase.png", dpi=150)
 
 
 def plot_learned_hamiltonian(model: HNN, system: str = "pendulum") -> None:
@@ -509,8 +507,7 @@ def plot_learned_hamiltonian(model: HNN, system: str = "pendulum") -> None:
 
     plt.suptitle("Hamiltonian Neural Network — Energy Surface")
     plt.tight_layout()
-    plt.savefig("hnn_surface.png", dpi=150)
-    plt.show()
+    save_figure("hnn_surface.png", dpi=150)
 
 
 # ─────────────────────────────────────────────
@@ -525,7 +522,7 @@ def main():
 
     # Generate training data
     print("\nGenerating phase-space data...")
-    data = generate_phase_space_data(system=system, n_trajectories=60,
+    data = generate_phase_space_data(system=system, n_trajectories=fast_or(60, 10),
                                       n_steps=80, dt=0.05)
 
     # Train HNN
@@ -537,8 +534,8 @@ def main():
     model_base, hist_base = train_hnn(data, model_type="baseline")
 
     # Rollout and energy comparison
-    q0 = np.array([[0.5]])
-    p0 = np.array([[0.3]])
+    q0 = np.array([0.5])   # one degree of freedom: shape (dof,)
+    p0 = np.array([0.3])
 
     print("\nLong-horizon rollout (500 steps):")
     qs_hnn, ps_hnn = leapfrog_rollout(model_hnn, q0, p0, n_steps=500, dt=0.05)

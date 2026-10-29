@@ -59,6 +59,8 @@ from itertools import combinations_with_replacement
 from dataclasses import dataclass, field
 from typing import Callable
 
+from deepdraft.core import save_figure
+
 # ─────────────────────────────────────────────
 # CONFIG
 # ─────────────────────────────────────────────
@@ -165,26 +167,29 @@ class CustomLibrary:
         return len(self.functions)
 
 
-def combine_libraries(*libs) -> "CombinedLibrary":
+class CombinedLibrary:
+    """Horizontal concatenation of several feature libraries."""
+
+    def __init__(self, libraries):
+        self.libraries = libraries
+        self.feature_names_ = []
+
+    def fit(self, X):
+        self.feature_names_ = []
+        for lib in self.libraries:
+            lib.fit(X)
+            self.feature_names_.extend(lib.feature_names_)
+        return self
+
+    def transform(self, X):
+        return np.hstack([lib.transform(X) for lib in self.libraries])
+
+    def fit_transform(self, X):
+        return self.fit(X).transform(X)
+
+
+def combine_libraries(*libs) -> CombinedLibrary:
     """Concatenate multiple libraries horizontally."""
-
-    class CombinedLibrary:
-        def __init__(self, libraries):
-            self.libraries = libraries
-            self.feature_names_ = []
-
-        def fit(self, X):
-            for lib in self.libraries:
-                lib.fit(X)
-                self.feature_names_.extend(lib.feature_names_)
-            return self
-
-        def transform(self, X):
-            return np.hstack([lib.transform(X) for lib in self.libraries])
-
-        def fit_transform(self, X):
-            return self.fit(X).transform(X)
-
     return CombinedLibrary(list(libs))
 
 
@@ -467,8 +472,7 @@ def plot_sindy_results(
 
     plt.tight_layout()
     fname = f"sindy_{system_name.lower().replace(' ', '_')}.png"
-    plt.savefig(fname, dpi=150)
-    plt.show()
+    save_figure(fname, dpi=150)
     print(f"Saved: {fname}")
 
 
@@ -486,8 +490,7 @@ def plot_coefficient_heatmap(model: SINDy, state_names: list = None):
     plt.colorbar(im, ax=ax, label="|coefficient|")
     ax.set_title("SINDy Coefficient Matrix |Ξ|")
     plt.tight_layout()
-    plt.savefig("sindy_coefficients.png", dpi=150)
-    plt.show()
+    save_figure("sindy_coefficients.png", dpi=150)
     print("Saved: sindy_coefficients.png")
 
 
@@ -526,8 +529,7 @@ def threshold_sweep(
     axes[1].grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plt.savefig("sindy_threshold_sweep.png", dpi=150)
-    plt.show()
+    save_figure("sindy_threshold_sweep.png", dpi=150)
     return results
 
 
