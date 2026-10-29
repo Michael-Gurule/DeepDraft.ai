@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Environments
+.venv/
+venv/
+env/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# Module outputs: figures, downloaded data, run artifacts
+outputs/
+runs/
+data/
+lightning_logs/
+*.png
+*.pdf
+catboost_info/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store

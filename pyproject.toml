@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deepdraft"
+dynamic = ["version"]
+description = "Reference implementations of machine learning algorithms for quick study and reuse."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Michael Gurule" }]
+requires-python = ">=3.10"
+keywords = ["machine-learning", "data-science", "reference-implementations", "education"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Education",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+# Core dependencies cover classic/, most of bayesian/, causal_inference/
+# (except causal_discovery.py), interpretability/ (except integrated
+# gradients), and quantitative/ (except garch.py).
+dependencies = [
+    "numpy>=2.0",
+    "scipy>=1.11",
+    "pandas>=2.2",
+    "scikit-learn>=1.5",
+    "matplotlib>=3.9",
+]
+
+[project.optional-dependencies]
+boosting = ["xgboost>=2.0", "lightgbm>=4.0"]
+timeseries = ["statsmodels>=0.14", "prophet>=1.1"]
+deep = ["torch>=2.2"]
+rl = ["gymnasium>=1.0", "torch>=2.2"]
+causal = ["networkx>=3.0"]
+quant = ["arch>=6.0", "statsmodels>=0.14"]
+bayes = ["hmmlearn>=0.3"]
+all = ["deepdraft[boosting,timeseries,deep,rl,causal,quant,bayes]"]
+dev = ["pytest>=8.0", "pytest-xdist>=3.5", "ruff>=0.6", "pre-commit>=3.7"]
+
+[project.urls]
+Repository = "https://github.com/Michael-Gurule/DeepDraft.ai"
+Roadmap = "https://github.com/Michael-Gurule/DeepDraft.ai/blob/main/ROADMAP.md"
+
+[tool.setuptools.dynamic]
+version = { attr = "deepdraft.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = ["docs"]
+
+[tool.ruff.lint]
+# Start with checks that catch real bugs (syntax errors, undefined names,
+# invalid comparisons). Widen the rule set once the modules are cleaned up.
+select = ["E9", "F63", "F7", "F82"]
