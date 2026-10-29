@@ -40,7 +40,8 @@ Fine-Tuning Recommendations:
     - Bottleneck size: start at 10–20% of input dim; too small → underfitting;
       too large → AE memorizes anomalies without generalizing.
     - Depth: 2–3 encoder/decoder layers. Deeper → captures more complex patterns.
-    - Threshold: use contamination percentile or maximize F1 on a small labeled set.
+    - Threshold: a percentile of reconstruction errors on normal training data
+      (a false-positive budget), or maximize F1 on a small labeled validation set.
     - Training data: use *only* normal samples. Mixed training degrades separation.
     - Epochs: 50–200 with early stopping on validation reconstruction loss.
     - Dropout: 0.1–0.3 helps regularize; prevents overfitting on small datasets.
@@ -62,6 +63,7 @@ from sklearn.metrics import (
 )
 
 from deepdraft.core import fast_or, save_figure
+from deepdraft.evaluation import train_val_test_split
 
 DEVICE = (
     "cuda" if torch.cuda.is_available()
@@ -96,7 +98,6 @@ def generate_anomaly_data(
     Returns:
         X:       full dataset (normal + anomalies)
         y:       labels (0=normal, 1=anomaly)
-        X_train: normal-only training set (unlabeled, for AE training)
     """
     X_normal, _ = make_blobs(n_samples=n_normal, n_features=n_features,
                               centers=3, cluster_std=0.8, random_state=42)
@@ -108,8 +109,7 @@ def generate_anomaly_data(
     )
     X = np.vstack([X_normal, X_anomalies]).astype(np.float32)
     y = np.array([0] * n_normal + [1] * n_anomalies)
-    X_train = X_normal.astype(np.float32)
-    return X, y, X_train
+    return X, y
 
 
 # ─────────────────────────────────────────────
@@ -281,20 +281,31 @@ def reconstruction_scores(model: nn.Module, scaler: StandardScaler,
     return errors
 
 
-def find_threshold(scores: np.ndarray, contamination: float = 0.05) -> float:
+def find_threshold(normal_scores: np.ndarray, fpr: float = 0.05) -> float:
     """
-    Set anomaly threshold at the (1-contamination) percentile of scores.
+    Set the anomaly threshold at the (1 - fpr) percentile of NORMAL scores.
 
-    Placeholder: adjust contamination to match expected anomaly rate.
+    Pass reconstruction errors from data you trust to be normal, such as the
+    training set. About `fpr` of new normal samples will then exceed the
+    threshold, so `fpr` is your false-positive budget. No labels needed.
+
+    Do not take the percentile of the scores you are evaluating: that forces
+    exactly that fraction of them to be flagged, whatever the real anomaly rate.
+    Errors on the training data run slightly low (the model saw those rows), so
+    the realized false-positive rate lands a little above `fpr`.
+
+    Placeholder: set fpr to the false-positive rate you can tolerate.
     Alternatively, use find_optimal_threshold() with labeled data.
     """
-    return float(np.percentile(scores, 100 * (1 - contamination)))
+    return float(np.percentile(normal_scores, 100 * (1 - fpr)))
 
 
 def find_optimal_threshold(scores: np.ndarray, y: np.ndarray) -> float:
     """
     Find threshold that maximizes F1 (requires labeled data).
     Use this for calibration when some labeled anomalies are available.
+    Pass VALIDATION scores and labels; a threshold tuned on the test set makes
+    the test F1 optimistic.
     """
     precisions, recalls, thresholds = precision_recall_curve(y, scores)
     f1s = 2 * precisions * recalls / (precisions + recalls + 1e-8)
@@ -303,24 +314,22 @@ def find_optimal_threshold(scores: np.ndarray, y: np.ndarray) -> float:
 
 
 def evaluate(model: nn.Module, scaler: StandardScaler,
-             X: np.ndarray, y: np.ndarray,
-             contamination: float = 0.047) -> dict:
+             X: np.ndarray, y: np.ndarray, threshold: float) -> dict:
     """
     Evaluate anomaly detection performance.
 
     Args:
-        model:         trained Autoencoder
-        scaler:        fitted StandardScaler
-        X:             all samples (normal + anomalies)
-        y:             true labels (0=normal, 1=anomaly)
-        contamination: expected fraction of anomalies
+        model:     trained Autoencoder
+        scaler:    fitted StandardScaler
+        X:         held-out samples (normal + anomalies), unseen in training
+        y:         true labels (0=normal, 1=anomaly)
+        threshold: reconstruction-error cutoff, chosen without the test labels
 
     Returns:
         dict of metrics
     """
     scores  = reconstruction_scores(model, scaler, X)
-    thresh  = find_threshold(scores, contamination)
-    y_pred  = (scores > thresh).astype(int)
+    y_pred  = (scores > threshold).astype(int)
 
     auc = roc_auc_score(y, scores)
     ap  = average_precision_score(y, scores)
@@ -358,13 +367,12 @@ def plot_training_curve(history: dict) -> None:
 
 def plot_reconstruction_errors(model: nn.Module, scaler: StandardScaler,
                                 X: np.ndarray, y: np.ndarray,
-                                contamination: float = 0.047) -> None:
+                                thresh: float) -> None:
     """
     Histogram of reconstruction errors for normal vs. anomalous samples.
     Clear separation → model is discriminating well.
     """
     scores = reconstruction_scores(model, scaler, X)
-    thresh = find_threshold(scores, contamination)
 
     plt.figure(figsize=(9, 4))
     plt.hist(scores[y == 0], bins=50, alpha=0.6, label="Normal",  color="steelblue")
@@ -411,10 +419,9 @@ def plot_feature_reconstruction(model: nn.Module, scaler: StandardScaler,
 
 def plot_confusion_matrix(model: nn.Module, scaler: StandardScaler,
                            X: np.ndarray, y: np.ndarray,
-                           contamination: float = 0.047) -> None:
-    """Display confusion matrix at the contamination threshold."""
+                           thresh: float) -> None:
+    """Display confusion matrix at the given threshold."""
     scores = reconstruction_scores(model, scaler, X)
-    thresh = find_threshold(scores, contamination)
     y_pred = (scores > thresh).astype(int)
     ConfusionMatrixDisplay(confusion_matrix(y, y_pred),
                            display_labels=["Normal", "Anomaly"]).plot(cmap="Oranges")
@@ -698,10 +705,11 @@ def demo_conv_ae_on_mnist() -> None:
     normal_data  = mnist.data[normal_idx].float().unsqueeze(1) / 255.0
     anomaly_data = mnist.data[anomaly_idx].float().unsqueeze(1) / 255.0
 
-    # Train on normal only
+    # Train on normal only. Hold out two blocks of normals: one for early
+    # stopping, one for the final evaluation, so no scored image was seen.
     n_val = 200
-    train_ds = TensorDataset(normal_data[:-n_val])
-    val_ds   = TensorDataset(normal_data[-n_val:])
+    train_ds = TensorDataset(normal_data[:-2 * n_val])
+    val_ds   = TensorDataset(normal_data[-2 * n_val:-n_val])
     train_dl = DataLoader(train_ds, batch_size=64, shuffle=True)
     val_dl   = DataLoader(val_ds, batch_size=64)
 
@@ -741,28 +749,35 @@ def main():
     print(f"=== Autoencoder Anomaly Detection ===  (device: {DEVICE})")
 
     # Placeholder: replace with your dataset
-    X, y, X_train = generate_anomaly_data(n_normal=1000, n_anomalies=50, n_features=20)
+    X, y = generate_anomaly_data(n_normal=1000, n_anomalies=50, n_features=20)
     print(f"Dataset: {X.shape[0]} samples ({y.sum()} anomalies) | {X.shape[1]} features")
 
-    contamination = y.sum() / len(y)  # Placeholder: set to known or estimated rate
+    # Stratified train / validation / test. The autoencoder learns to
+    # reconstruct normal data, so keep only the normal rows of the training
+    # split. Validation and test hold both classes and no training rows.
+    X_train, X_val, X_test, y_train, y_val, y_test = train_val_test_split(
+        X, y, val_size=0.2, test_size=0.3, stratify=y
+    )
+    X_train = X_train[y_train == 0]
 
     print("\nTraining autoencoder on normal data only...")
     model, scaler, history = train_autoencoder(X_train)
 
-    print("\nEvaluation (all samples):")
-    evaluate(model, scaler, X, y, contamination=contamination)
+    # Unsupervised threshold: a false-positive budget on the training normals
+    target_fpr = 0.05   # Placeholder: the false-positive rate you can tolerate
+    thresh = find_threshold(reconstruction_scores(model, scaler, X_train), fpr=target_fpr)
+    print(f"\nTest set, threshold at {target_fpr:.0%} training false-positive rate:")
+    evaluate(model, scaler, X_test, y_test, threshold=thresh)
 
-    # Threshold using labeled data (if available)
-    scores      = reconstruction_scores(model, scaler, X)
-    opt_thresh  = find_optimal_threshold(scores, y)
-    y_pred_opt  = (scores > opt_thresh).astype(int)
-    from sklearn.metrics import f1_score
-    print(f"\nOptimal threshold: {opt_thresh:.4f}  (F1: {f1_score(y, y_pred_opt):.4f})")
+    # Supervised threshold: maximize F1 on the labeled validation set (if available)
+    opt_thresh = find_optimal_threshold(reconstruction_scores(model, scaler, X_val), y_val)
+    print(f"\nTest set, F1-optimal threshold chosen on validation ({opt_thresh:.4f}):")
+    evaluate(model, scaler, X_test, y_test, threshold=opt_thresh)
 
     plot_training_curve(history)
-    plot_reconstruction_errors(model, scaler, X, y, contamination=contamination)
-    plot_feature_reconstruction(model, scaler, X, y)
-    plot_confusion_matrix(model, scaler, X, y, contamination=contamination)
+    plot_reconstruction_errors(model, scaler, X_test, y_test, thresh)
+    plot_feature_reconstruction(model, scaler, X_test, y_test)
+    plot_confusion_matrix(model, scaler, X_test, y_test, thresh)
 
     # Conv-AE on MNIST (image inputs)
     # Placeholder: replace demo_conv_ae_on_mnist() with your own image data

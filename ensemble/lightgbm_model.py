@@ -392,7 +392,12 @@ def demo_categorical_features():
         X_train[col] = X_train[col].astype(np.int32)
         X_test[col]  = X_test[col].astype(np.int32)
 
-    model = train_classifier(X_train, y_train, X_test, y_test,
+    # Early stopping watches a validation split from the training data; the
+    # test set stays untouched until the final evaluation.
+    X_fit, X_val, y_fit, y_val = train_test_split(
+        X_train, y_train, test_size=0.15, random_state=42, stratify=y_train
+    )
+    model = train_classifier(X_fit, y_fit, X_val, y_val,
                               categorical_features=cat_cols)
     metrics = evaluate_classifier(model, X_test, y_test, label="LGBM (native cats)")
     print(f"  Native categorical AUC: {metrics['auc']:.4f}")
