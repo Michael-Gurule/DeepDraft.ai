@@ -89,3 +89,71 @@ def test_antithetic_handles_odd_path_counts():
     assert paths.shape == (8, 6)
     np.testing.assert_allclose(np.log(paths[:4, 1:] / 100) + np.log(paths[4:, 1:] / 100),
                                2 * np.cumsum(np.full((4, 5), (0.05 - 0.02) / 252), axis=1))
+
+
+# ── Black-Scholes ────────────────────────────────────────────────
+
+black_scholes = load_module("quantitative/black_scholes.py")
+
+
+def test_black_scholes_textbook_values():
+    # Hull, Options, Futures, and Other Derivatives: S=K=100, T=1, r=5%, sigma=20%
+    assert black_scholes.bs_price(100, 100, 1.0, 0.05, 0.2, "call") == pytest.approx(10.4506, abs=1e-4)
+    assert black_scholes.bs_price(100, 100, 1.0, 0.05, 0.2, "put") == pytest.approx(5.5735, abs=1e-4)
+
+
+@pytest.mark.parametrize("K, T, r, sigma, q", [(80, 0.5, 0.03, 0.25, 0.0), (120, 2.0, 0.01, 0.4, 0.02)])
+def test_black_scholes_put_call_parity(K, T, r, sigma, q):
+    S = 100.0
+    call = black_scholes.bs_price(S, K, T, r, sigma, "call", q=q)
+    put = black_scholes.bs_price(S, K, T, r, sigma, "put", q=q)
+    assert call - put == pytest.approx(S * np.exp(-q * T) - K * np.exp(-r * T), abs=1e-10)
+
+
+def test_black_scholes_greeks_match_finite_differences():
+    S, K, T, r, sigma, h = 100.0, 105.0, 0.75, 0.02, 0.3, 1e-3
+    price = lambda **kw: black_scholes.bs_price(**{"S": S, "K": K, "T": T, "r": r,
+                                                   "sigma": sigma, **kw})
+    g = black_scholes.bs_greeks(S, K, T, r, sigma, "call")
+    assert g["delta"] == pytest.approx((price(S=S + h) - price(S=S - h)) / (2 * h), rel=1e-5)
+    assert g["gamma"] == pytest.approx((price(S=S + h) - 2 * price() + price(S=S - h)) / h ** 2, rel=1e-3)
+    assert g["vega"] == pytest.approx(0.01 * (price(sigma=sigma + h) - price(sigma=sigma - h)) / (2 * h), rel=1e-5)
+
+
+def test_implied_volatility_inverts_the_price():
+    price = black_scholes.bs_price(100, 90, 0.5, 0.03, 0.37, "put")
+    assert black_scholes.implied_volatility(price, 100, 90, 0.5, 0.03, "put") == pytest.approx(0.37, abs=1e-5)
+
+
+# ── Heston ───────────────────────────────────────────────────────
+
+heston = load_module("quantitative/heston.py")
+HESTON = dict(S0=100.0, T=1.0, r=0.03, q=0.0, V0=0.04, kappa=2.0, theta=0.04, xi=0.5, rho=-0.7)
+
+
+@pytest.mark.parametrize("K, reference", [(80, 23.8732), (100, 8.9294), (120, 1.2935)])
+def test_heston_matches_an_independent_pricer(K, reference):
+    # Reference: an independent implementation of Gatheral's "little trap"
+    # characteristic function, confirmed by 200,000-path Monte Carlo.
+    p = HESTON
+    price = heston.heston_price_analytic(p["S0"], K, p["T"], p["r"], p["q"], p["V0"],
+                                         p["kappa"], p["theta"], p["xi"], p["rho"])
+    assert price == pytest.approx(reference, abs=2e-3)
+
+
+def test_heston_reduces_to_black_scholes_without_vol_of_vol():
+    # With xi -> 0 and V0 = theta, variance stays at theta: Black-Scholes with sigma = sqrt(theta)
+    p = {**HESTON, "xi": 1e-4, "rho": 0.0}
+    for K in (85, 100, 115):
+        h_price = heston.heston_price_analytic(p["S0"], K, p["T"], p["r"], p["q"], p["V0"],
+                                               p["kappa"], p["theta"], p["xi"], p["rho"])
+        bs = black_scholes.bs_price(p["S0"], K, p["T"], p["r"], np.sqrt(p["theta"]), "call")
+        assert h_price == pytest.approx(bs, abs=1e-3)
+
+
+def test_heston_put_call_parity():
+    p = HESTON
+    args = (p["S0"], 95, p["T"], p["r"], p["q"], p["V0"], p["kappa"], p["theta"], p["xi"], p["rho"])
+    call = heston.heston_price_analytic(*args, option_type="call")
+    put = heston.heston_price_analytic(*args, option_type="put")
+    assert call - put == pytest.approx(p["S0"] - 95 * np.exp(-p["r"] * p["T"]), abs=1e-8)

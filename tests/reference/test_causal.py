@@ -124,3 +124,26 @@ def test_qini_auuc_is_zero_for_a_random_ranking_in_expectation():
     Y = D * 1.0 + rng.standard_normal(n)
     _, _, auuc = effects.compute_qini_curve(rng.standard_normal(n), D, Y)
     assert abs(auuc) < 0.02
+
+
+def test_pc_recovers_the_skeleton_and_v_structures():
+    X, truth = discovery.generate_linear_dag_data(n_samples=5000, seed=0)
+    pc = discovery.PCAlgorithm(alpha=0.01, max_cond_set=3).fit(X)
+    true_skeleton = truth["adjacency"] | truth["adjacency"].T
+    np.testing.assert_array_equal(pc.skeleton_, true_skeleton)
+    # Every edge of this DAG is part of a v-structure (X1→X3←X2, X1→X4←X2,
+    # X3→X5←X4), so the CPDAG is the DAG itself.
+    metrics = discovery.evaluate_graph(pc.adjacency_matrix, truth["adjacency"])
+    assert metrics["SHD"] == 0
+
+
+def test_pc_orientation_never_deletes_skeleton_edges():
+    # Path 0 - 1 - 2 - 3 with empty separating sets for (0, 2) and (1, 3):
+    # the v-structures 0→1←2 and 1→2←3 disagree about the edge 1 - 2.
+    skeleton = np.zeros((4, 4), dtype=int)
+    for i, j in [(0, 1), (1, 2), (2, 3)]:
+        skeleton[i, j] = skeleton[j, i] = 1
+    pc = discovery.PCAlgorithm()
+    pc.sep_sets = {(0, 2): [], (2, 0): [], (1, 3): [], (3, 1): [], (0, 3): [1], (3, 0): [1]}
+    cpdag = pc._orient_edges(skeleton, 4)
+    np.testing.assert_array_equal(cpdag | cpdag.T, skeleton)

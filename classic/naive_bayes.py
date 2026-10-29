@@ -103,7 +103,11 @@ def load_text_data(categories: list | None = None):
         categories: list of newsgroup categories to load (None = all 20)
 
     Returns:
-        train_texts, test_texts, train_labels, test_labels
+        train_texts, test_texts, train_labels, test_labels, target_names
+
+    Label i means target_names[i]. fetch_20newsgroups numbers the categories
+    in alphabetical order, not in the order you list them, so always name
+    classes from target_names.
     """
     if categories is None:
         categories = ["sci.space", "rec.sport.hockey", "talk.politics.misc", "comp.graphics"]
@@ -116,7 +120,7 @@ def load_text_data(categories: list | None = None):
               "using a small synthetic text corpus instead.")
         return make_synthetic_text_data(categories)
 
-    return train.data, test.data, train.target, test.target
+    return train.data, test.data, train.target, test.target, list(train.target_names)
 
 
 def make_synthetic_text_data(categories: list, n_train: int = 150, n_test: int = 50,
@@ -152,7 +156,7 @@ def make_synthetic_text_data(categories: list, n_train: int = 150, n_test: int =
 
     train_texts, train_labels = _docs(n_train)
     test_texts, test_labels = _docs(n_test)
-    return train_texts, test_texts, train_labels, test_labels
+    return train_texts, test_texts, train_labels, test_labels, ordered
 
 
 def load_binary_data(n_samples: int = 600, n_features: int = 10):
@@ -334,8 +338,11 @@ def plot_top_features_per_class(pipeline: Pipeline, class_names: list,
     """
     Show the top discriminative words/features for each class in a text NB model.
 
-    The feature log-probability matrix (coef_ or feature_log_prob_) shows which
-    words are most associated with each class.
+    Ranking words by feature_log_prob_ alone shows the most FREQUENT words in
+    each class, which are mostly the same words everywhere ("the", "of").
+    A word discriminates when it is much more likely in one class than in the
+    others, so rank by the log-probability ratio:
+        log P(word | class) - mean over other classes of log P(word | other)
 
     Most useful for: debugging, auditing, detecting bias in text classifiers.
 
@@ -357,30 +364,35 @@ def plot_top_features_per_class(pipeline: Pipeline, class_names: list,
     if n_classes == 1:
         axes = [axes]
 
+    log_prob = clf.feature_log_prob_
     for i, (ax, class_name) in enumerate(zip(axes, class_names)):
-        top_idx = np.argsort(clf.feature_log_prob_[i])[-top_n:][::-1]
-        ax.barh(feature_names[top_idx][::-1], clf.feature_log_prob_[i][top_idx][::-1],
+        others = np.delete(log_prob, i, axis=0)
+        ratio = log_prob[i] - others.mean(axis=0) if len(others) else log_prob[i]
+        top_idx = np.argsort(ratio)[-top_n:][::-1]
+        ax.barh(feature_names[top_idx][::-1], ratio[top_idx][::-1],
                 color="steelblue", edgecolor="k")
         ax.set_title(f"Class: {class_name}")
-        ax.set_xlabel("Log Probability")
+        ax.set_xlabel("Log-probability ratio vs. other classes")
 
     plt.suptitle("Top Discriminative Features per Class")
     plt.tight_layout()
     save_figure("naive_bayes_top_features.png", dpi=150)
 
 
-def compare_variants(X_test: np.ndarray, y_test: np.ndarray,
-                      models: dict) -> None:
+def compare_variants(y_test: np.ndarray, models: dict) -> None:
     """
     Compare accuracy of multiple NB variants in a bar chart.
 
+    Each variant expects differently encoded features (raw, scaled to [0, 1],
+    binarized), so every model comes with the test features in ITS encoding,
+    transformed with statistics fitted on the training data.
+
     Args:
-        X_test:  test features
         y_test:  true labels
-        models:  dict mapping model name → fitted model
+        models:  dict mapping model name → (fitted model, X_test in that model's encoding)
     """
     names = list(models.keys())
-    accs  = [accuracy_score(y_test, m.predict(X_test)) for m in models.values()]
+    accs  = [accuracy_score(y_test, m.predict(X)) for m, X in models.values()]
 
     plt.figure(figsize=(7, 4))
     bars = plt.bar(names, accs, color="steelblue", edgecolor="k")
@@ -412,8 +424,7 @@ def main():
 
     # ── MultinomialNB on text data ───────────────────────────────────
     print("\n=== MultinomialNB (Text Classification) ===")
-    train_texts, test_texts, y_train_text, y_test_text = load_text_data()
-    categories = ["sci.space", "rec.sport.hockey", "talk.politics.misc", "comp.graphics"]
+    train_texts, test_texts, y_train_text, y_test_text, class_names = load_text_data()
 
     mnb_pipeline = build_text_pipeline(vectorizer_type="tfidf")
     mnb_pipeline.fit(train_texts, y_train_text)
@@ -436,21 +447,25 @@ def main():
 
     # ── Variant comparison ──────────────────────────────────────────
     print("\n=== Variant Comparison (Continuous Features) ===")
-    # Scale to [0, 1] for MultinomialNB compatibility
-    scaler = MinMaxScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_test_scaled  = scaler.transform(X_test)
+    # MultinomialNB needs non-negative features: scale to [0, 1].
+    minmax = MinMaxScaler().fit(X_train)
+    # BernoulliNB needs binary features: standardize, then binarize at 0 so
+    # each feature means "above its training mean". (Binarizing [0, 1]-scaled
+    # data at 0 would turn almost every value into 1.)
+    standard = StandardScaler().fit(X_train)
 
     models = {
-        "GaussianNB":    GaussianNB().fit(X_train, y_train),
-        "MultinomialNB": MultinomialNB(alpha=1.0).fit(X_train_scaled, y_train),
-        "BernoulliNB":   BernoulliNB(alpha=1.0).fit(X_train_scaled, y_train),
+        "GaussianNB":    (GaussianNB().fit(X_train, y_train), X_test),
+        "MultinomialNB": (MultinomialNB(alpha=1.0).fit(minmax.transform(X_train), y_train),
+                          minmax.transform(X_test)),
+        "BernoulliNB":   (BernoulliNB(alpha=1.0, binarize=0.0).fit(standard.transform(X_train), y_train),
+                          standard.transform(X_test)),
     }
-    compare_variants(X_test_scaled, y_test, models)
+    compare_variants(y_test, models)
 
     # Text visualizations
     plot_confusion_matrix(mnb_pipeline, test_texts, y_test_text, title="MultinomialNB Text")
-    plot_top_features_per_class(mnb_pipeline, categories[:4])
+    plot_top_features_per_class(mnb_pipeline, class_names)
 
 
 if __name__ == "__main__":

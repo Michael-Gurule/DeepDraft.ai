@@ -93,6 +93,13 @@ def generate_linear_dag_data(
     only when the noise is non-Gaussian (at most one Gaussian term), so every
     structural equation here gets non-Gaussian noise.
 
+    Coefficients: PC assumes faithfulness, meaning no independence arises
+    from paths cancelling out. Coefficients near a cancellation make PC's
+    tests unreliable at realistic sample sizes. With X4 = 0.5 X1 + 0.7 X2,
+    for example, the partial correlation of X2 and X3 given X4 is only 0.015
+    and PC drops the true edge X2 → X3. The coefficients below keep every
+    nonzero partial correlation above 0.13.
+
     Args:
         n_samples: number of observations
         seed:      random seed
@@ -108,7 +115,7 @@ def generate_linear_dag_data(
     X1 = rng.laplace(0, 1, n)
     X2 = rng.laplace(0, 1, n)
     X3 = 0.8 * X1 + 0.6 * X2 + rng.uniform(-1, 1, n)
-    X4 = 0.5 * X1 + 0.7 * X2 + rng.laplace(0, 0.5, n)
+    X4 = 0.6 * X1 - 0.4 * X2 + rng.laplace(0, 0.5, n)
     X5 = 0.9 * X3 + 0.4 * X4 + rng.uniform(-0.6, 0.6, n)
 
     X = np.column_stack([X1, X2, X3, X4, X5])
@@ -274,9 +281,14 @@ class PCAlgorithm:
                     continue
                 sep = self.sep_sets.get((x, y), [])
                 if z not in sep:
-                    # X → Z ← Y (collider)
-                    cpdag[z, x] = 0
-                    cpdag[z, y] = 0
+                    # X → Z ← Y (collider). Orient only edges that are still
+                    # undirected: if finite-sample errors make two
+                    # v-structures disagree about an edge, keep the first
+                    # orientation. Zeroing both directions would delete an
+                    # edge the skeleton phase found.
+                    for parent in (x, y):
+                        if cpdag[parent, z] and cpdag[z, parent]:
+                            cpdag[z, parent] = 0
 
         # Meek Rule R1: orient Z-Y as Z→Y if X→Z and X,Y not adjacent
         changed = True

@@ -66,6 +66,7 @@ from statsmodels.tsa.holtwinters import (
     Holt,
 )
 from statsmodels.tsa.forecasting.theta import ThetaModel
+from statsmodels.tsa.exponential_smoothing.ets import ETSModel
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 
 from deepdraft.core import save_figure
@@ -193,43 +194,51 @@ def fit_holt_winters(
 
 def fit_ets_auto(y_train: pd.Series, seasonal_periods: int = 12) -> dict:
     """
-    Automatic ETS model selection by AIC.
-    Tries multiple error/trend/seasonal combinations and returns best by AIC.
-    """
-    best_aic = np.inf
-    best_result = None
+    Automatic ETS model selection by AICc (Hyndman and Khandakar, 2008).
 
-    configs = [
-        ("add",  "add",  "add"),
-        ("add",  "add",  "mul"),
-        ("add",  None,   "add"),
-        ("add",  None,   "mul"),
-        ("mul",  "add",  "mul"),
-        ("mul",  "mul",  "mul"),
-        ("add",  "add",  None),
-        ("add",  None,   None),
-    ]
-    for trend, seasonal, error in configs:
-        try:
-            model = ExponentialSmoothing(
-                y_train,
-                trend=trend, seasonal=seasonal,
-                seasonal_periods=seasonal_periods if seasonal else None,
-                initialization_method="estimated",
-            )
-            fit = model.fit(optimized=True)
-            if fit.aic < best_aic:
-                best_aic = fit.aic
-                best_result = {
-                    "model": model, "fit": fit,
-                    "name": f"ETS_auto({error},{trend or 'N'},{seasonal or 'N'})",
-                    "aic": fit.aic,
-                }
-        except Exception:
-            pass
+    Fits the state-space ETS(error, trend, seasonal) family with statsmodels'
+    ETSModel, which has a proper likelihood for both additive and
+    multiplicative errors, and keeps the model with the lowest AICc.
+    (Holt-Winters ExponentialSmoothing has no error model, so its AIC cannot
+    choose between error types.)
+
+    Candidates:
+        error:    A, M            (M needs strictly positive data)
+        trend:    N, A, Ad (damped)
+        seasonal: N, A, M         (M needs strictly positive data)
+    Additive error with multiplicative seasonality is skipped, as in the
+    forecast package, because it is numerically unstable.
+    """
+    positive = bool((y_train > 0).all())
+    errors    = ["add", "mul"] if positive else ["add"]
+    trends    = [(None, False), ("add", False), ("add", True)]
+    seasonals = [None, "add", "mul"] if positive else [None, "add"]
+    code = {None: "N", "add": "A", "mul": "M"}
+
+    best_result = None
+    for error in errors:
+        for trend, damped in trends:
+            for seasonal in seasonals:
+                if error == "add" and seasonal == "mul":
+                    continue
+                name = f"ETS({code[error]},{code[trend]}{'d' if damped else ''},{code[seasonal]})"
+                try:
+                    model = ETSModel(
+                        y_train, error=error, trend=trend, damped_trend=damped,
+                        seasonal=seasonal,
+                        seasonal_periods=seasonal_periods if seasonal else None,
+                    )
+                    fit = model.fit(disp=False)
+                except Exception:
+                    continue
+                if not np.isfinite(fit.aicc):
+                    continue
+                if best_result is None or fit.aicc < best_result["aicc"]:
+                    best_result = {"model": model, "fit": fit,
+                                   "name": f"ETS_auto {name}", "aicc": fit.aicc}
 
     if best_result:
-        print(f"Best ETS: {best_result['name']}  AIC={best_result['aic']:.2f}")
+        print(f"Best ETS: {best_result['name']}  AICc={best_result['aicc']:.2f}")
     return best_result
 
 
@@ -272,10 +281,17 @@ def prediction_interval(result: dict, h: int, alpha: float = 0.05,
     Holt-Winters fits (SES, Holt, ExponentialSmoothing) have no analytic
     interval method in statsmodels, so the interval comes from simulating
     n_sims future paths with resampled additive errors and taking quantiles.
-    Theta fits provide analytic intervals via prediction_intervals().
+    Theta fits provide analytic intervals via prediction_intervals(), and
+    state-space ETS fits use their own error model via get_prediction().
     """
     fit = result["fit"]
     fc = forecast(result, h)
+
+    if hasattr(fit, "get_prediction") and "aicc" in result:   # ETSResults
+        n = fit.nobs
+        frame = fit.get_prediction(start=n, end=n + h - 1).summary_frame(alpha=alpha)
+        return pd.DataFrame({"forecast": fc, "lower": frame["pi_lower"].values,
+                             "upper": frame["pi_upper"].values}, index=fc.index)
 
     if hasattr(fit, "prediction_intervals"):          # ThetaModelResults
         pi = fit.prediction_intervals(h, theta=result["theta"], alpha=alpha)
