@@ -89,7 +89,9 @@ def generate_linear_dag_data(
         X2 → X4 → X5
         X1 → X4
 
-    Noise: mixed Gaussian + Laplace to support LiNGAM recovery.
+    Noise: Laplace and uniform, never Gaussian. LiNGAM identifies the DAG
+    only when the noise is non-Gaussian (at most one Gaussian term), so every
+    structural equation here gets non-Gaussian noise.
 
     Args:
         n_samples: number of observations
@@ -105,9 +107,9 @@ def generate_linear_dag_data(
     # Structural equations with non-Gaussian noise
     X1 = rng.laplace(0, 1, n)
     X2 = rng.laplace(0, 1, n)
-    X3 = 0.8 * X1 + 0.6 * X2 + rng.normal(0, 0.5, n)
+    X3 = 0.8 * X1 + 0.6 * X2 + rng.uniform(-1, 1, n)
     X4 = 0.5 * X1 + 0.7 * X2 + rng.laplace(0, 0.5, n)
-    X5 = 0.9 * X3 + 0.4 * X4 + rng.normal(0, 0.3, n)
+    X5 = 0.9 * X3 + 0.4 * X4 + rng.uniform(-0.6, 0.6, n)
 
     X = np.column_stack([X1, X2, X3, X4, X5])
     X = StandardScaler().fit_transform(X)
@@ -308,17 +310,28 @@ class DirectLiNGAM:
     Under these assumptions, the causal order and B are uniquely identifiable.
 
     Algorithm (Direct LiNGAM):
-        1. Repeatedly find the variable most independent of its residuals
-           after regressing out all others → this variable has no parents (root).
-        2. Remove that variable; repeat on residuals to recover full causal order.
-        3. Estimate B by regressing each variable on its discovered parents.
+        1. Find the exogenous variable: the x_j that is most independent of
+           the residuals r_i = x_i - b_ij x_j of regressing every other
+           variable on it. Only a variable with no parents leaves residuals
+           independent of itself; regressing on a variable that has parents
+           leaves its noise mixed into the residuals.
+        2. Regress x_j out of every remaining variable and repeat on the
+           residuals. The order in which variables are removed is the
+           causal order.
+        3. Estimate B by regressing each variable on its causal predecessors.
 
-    Independence measure: we use negative absolute kurtosis as a proxy for
-    non-Gaussianity. A Gaussian residual has kurtosis ≈ 0; non-Gaussian noise
-    has non-zero excess kurtosis.
+    Independence measure: the pairwise likelihood ratio of Hyvarinen and
+    Smith (2013), the default in the reference `lingam` package. For each
+    pair it compares the entropy of "x_j causes x_i" against "x_i causes
+    x_j", using a maximum-entropy approximation of differential entropy.
+
+    Conventions:
+        B_[i, j]           coefficient of x_j in the equation for x_i (j → i)
+        adjacency_matrix_  adjacency_matrix_[i, j] = 1 means i → j, the same
+                           convention as the true graph and the PC output
 
     Args:
-        threshold: minimum edge weight to include in the estimated DAG
+        threshold: minimum |coefficient| to keep an edge in the estimated DAG
     """
 
     def __init__(
@@ -334,7 +347,7 @@ class DirectLiNGAM:
         Fit LiNGAM to data X.
 
         Args:
-            X: (n_samples, n_vars) standardized data
+            X: (n_samples, n_vars) data matrix
 
         Returns:
             self (fitted)
@@ -342,35 +355,16 @@ class DirectLiNGAM:
         n_vars = X.shape[1]
         remaining = list(range(n_vars))
         causal_order = []
-        residuals = X.copy()
+        residuals = X - X.mean(axis=0)
 
-        for _ in range(n_vars - 1):
-            # Find variable most independent of its residuals
-            best_var, best_score = None, -np.inf
+        while remaining:
+            root = self._most_exogenous(residuals, remaining)
+            causal_order.append(root)
+            remaining.remove(root)
+            # Remove the root's influence from every remaining variable
             for var in remaining:
-                others = [v for v in remaining if v != var]
-                if not others:
-                    score = self._non_gaussianity(residuals[:, var])
-                else:
-                    # Regress var on others, measure non-Gaussianity of residual
-                    R = np.column_stack([residuals[:, v] for v in others])
-                    coef, _, _, _ = np.linalg.lstsq(R, residuals[:, var], rcond=None)
-                    res = residuals[:, var] - R @ coef
-                    score = self._non_gaussianity(res)
-                if score > best_score:
-                    best_score = score
-                    best_var = var
+                residuals[:, var] = self._residual(residuals[:, var], residuals[:, root])
 
-            causal_order.append(best_var)
-            remaining.remove(best_var)
-
-            # Update residuals: remove influence of best_var from remaining vars
-            for var in remaining:
-                r = residuals[:, best_var]
-                cov = np.dot(residuals[:, var], r) / (np.dot(r, r) + 1e-10)
-                residuals[:, var] -= cov * r
-
-        causal_order.append(remaining[0])
         self.causal_order_ = causal_order
 
         # Estimate B: regress each variable on its causal predecessors
@@ -378,23 +372,59 @@ class DirectLiNGAM:
         for i, var in enumerate(causal_order):
             predecessors = causal_order[:i]
             if predecessors:
-                X_pred = X[:, predecessors]
-                coefs, _, _, _ = np.linalg.lstsq(X_pred, X[:, var], rcond=None)
-                for pred, coef in zip(predecessors, coefs):
-                    B[var, pred] = coef
+                reg = LinearRegression().fit(X[:, predecessors], X[:, var])
+                B[var, predecessors] = reg.coef_
 
         # Threshold small coefficients
         B[np.abs(B) < self.threshold] = 0.0
-        adj = (B != 0).astype(int)
-        self.adjacency_matrix_ = adj
         self.B_ = B
+        # B_[i, j] != 0 means j → i; transpose to the i → j convention
+        self.adjacency_matrix_ = (B != 0).T.astype(int)
         return self
 
+    def _most_exogenous(self, X: np.ndarray, candidates: list[int]) -> int:
+        """Pick the candidate whose regressions on the others look most like cause → effect."""
+        if len(candidates) == 1:
+            return candidates[0]
+        scores = []
+        for j in candidates:
+            xj = self._standardize(X[:, j])
+            penalty = 0.0
+            for i in candidates:
+                if i == j:
+                    continue
+                xi = self._standardize(X[:, i])
+                ri_j = self._residual(xi, xj)    # x_i with x_j regressed out
+                rj_i = self._residual(xj, xi)    # x_j with x_i regressed out
+                # Lower total entropy means higher likelihood. h_ji scores the
+                # model x_j → x_i, h_ij the model x_i → x_j.
+                h_ji = self._entropy(xj) + self._entropy(self._standardize(ri_j))
+                h_ij = self._entropy(xi) + self._entropy(self._standardize(rj_i))
+                # Only evidence against x_j being the cause (h_ij < h_ji) is penalized.
+                penalty += min(0.0, h_ij - h_ji) ** 2
+            scores.append(-penalty)
+        return candidates[int(np.argmax(scores))]
+
     @staticmethod
-    def _non_gaussianity(x: np.ndarray) -> float:
-        """Excess kurtosis as a non-Gaussianity measure (Gaussian → 0)."""
-        x = (x - x.mean()) / (x.std() + 1e-10)
-        return float(abs(stats.kurtosis(x, fisher=True)))
+    def _standardize(x: np.ndarray) -> np.ndarray:
+        return (x - x.mean()) / (x.std() + 1e-12)
+
+    @staticmethod
+    def _residual(xi: np.ndarray, xj: np.ndarray) -> np.ndarray:
+        """Residual of regressing xi on xj (both centered)."""
+        return xi - (np.dot(xi, xj) / (np.dot(xj, xj) + 1e-12)) * xj
+
+    @staticmethod
+    def _entropy(u: np.ndarray) -> float:
+        """
+        Maximum-entropy approximation of the differential entropy of a
+        standardized variable (Hyvarinen, 1998). A Gaussian has the largest
+        entropy for a given variance; non-Gaussian variables score lower.
+        """
+        k1, k2, gamma = 79.047, 7.4129, 0.37457
+        return float((1 + np.log(2 * np.pi)) / 2
+                     - k1 * (np.mean(np.log(np.cosh(u))) - gamma) ** 2
+                     - k2 * np.mean(u * np.exp(-u ** 2 / 2)) ** 2)
 
 
 # ─────────────────────────────────────────────
@@ -406,47 +436,58 @@ def evaluate_graph(
     true_adj: np.ndarray,
 ) -> dict[str, float]:
     """
-    Compute structural metrics comparing estimated and true DAG.
+    Compute structural metrics comparing an estimated graph to the true DAG.
+
+    Adjacency convention: adj[i, j] = 1 means i → j. An undirected edge (as in
+    a PC CPDAG) has adj[i, j] = adj[j, i] = 1.
 
     Metrics:
-        SHD (Structural Hamming Distance): number of edge additions, deletions,
-            and reversals needed to transform estimated into true graph.
-            Lower is better; 0 = perfect recovery.
-        Precision: of all recovered edges, fraction that are true edges.
-        Recall:    of all true edges, fraction that were recovered.
-        F1:        harmonic mean of precision and recall.
+        SHD (Structural Hamming Distance): the number of node pairs whose
+            edge differs: a missing edge, an extra edge, or a wrong or
+            missing orientation each cost 1. Lower is better; 0 = perfect.
+        Precision, recall, F1: on the skeleton (edges ignoring direction),
+            counting each node pair once.
+        Orientation accuracy: of the true edges found in the skeleton, the
+            fraction with the correct direction. An undirected edge counts
+            as not oriented.
 
     Args:
-        estimated_adj: (n_vars, n_vars) binary estimated adjacency (directed)
-        true_adj:      (n_vars, n_vars) binary true adjacency (directed)
+        estimated_adj: (n_vars, n_vars) binary estimated adjacency
+        true_adj:      (n_vars, n_vars) binary true adjacency (a DAG)
 
     Returns:
         dict of evaluation metrics
     """
-    n = true_adj.shape[0]
+    est = np.asarray(estimated_adj) != 0
+    true = np.asarray(true_adj) != 0
+    n = true.shape[0]
+    iu = np.triu_indices(n, k=1)                 # each unordered pair once
 
-    # Undirected skeleton comparison (ignore orientation for skeleton metrics)
-    est_skel = ((estimated_adj + estimated_adj.T) > 0).astype(int)
-    np.fill_diagonal(est_skel, 0)
-    true_skel = ((true_adj + true_adj.T) > 0).astype(int)
-    np.fill_diagonal(true_skel, 0)
+    est_skel = (est | est.T)[iu]
+    true_skel = (true | true.T)[iu]
+    tp = int(np.sum(est_skel & true_skel))
+    fp = int(np.sum(est_skel & ~true_skel))
+    fn = int(np.sum(~est_skel & true_skel))
 
-    tp = int(np.sum((est_skel == 1) & (true_skel == 1)))
-    fp = int(np.sum((est_skel == 1) & (true_skel == 0)))
-    fn = int(np.sum((est_skel == 0) & (true_skel == 1)))
+    precision = tp / (tp + fp) if tp + fp else 0.0
+    recall    = tp / (tp + fn) if tp + fn else 0.0
+    f1        = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
 
-    precision = tp / (tp + fp + 1e-10)
-    recall    = tp / (tp + fn + 1e-10)
-    f1        = 2 * precision * recall / (precision + recall + 1e-10)
+    # Per-pair edge type: (i→j present, j→i present). Any difference costs 1.
+    est_type  = np.stack([est[iu],  est.T[iu]],  axis=1)
+    true_type = np.stack([true[iu], true.T[iu]], axis=1)
+    shd = int(np.sum(np.any(est_type != true_type, axis=1)))
 
-    # SHD: count wrong edges in directed graph
-    shd = int(np.sum(estimated_adj != true_adj))
+    found = est_skel & true_skel
+    oriented_ok = np.all(est_type == true_type, axis=1) & found
+    orientation_acc = float(oriented_ok.sum() / found.sum()) if found.any() else 0.0
 
     return {
         "SHD":       shd,
         "precision": precision,
         "recall":    recall,
         "F1":        f1,
+        "orientation_accuracy": orientation_acc,
         "TP":        tp,
         "FP":        fp,
         "FN":        fn,
@@ -518,9 +559,10 @@ def plot_graph(
 
 def plot_metrics_comparison(metrics_pc: dict, metrics_lingam: dict) -> None:
     """
-    Bar chart comparing PC and LiNGAM on precision, recall, F1, and SHD.
+    Bar chart comparing PC and LiNGAM on skeleton precision, recall, F1,
+    orientation accuracy, and SHD.
     """
-    keys = ["precision", "recall", "F1"]
+    keys = ["precision", "recall", "F1", "orientation_accuracy"]
     pc_vals     = [metrics_pc[k]     for k in keys]
     lingam_vals = [metrics_lingam[k] for k in keys]
 
@@ -529,7 +571,7 @@ def plot_metrics_comparison(metrics_pc: dict, metrics_lingam: dict) -> None:
     fig, ax = plt.subplots(figsize=(8, 4))
     ax.bar(x - width/2, pc_vals,     width, label=f"PC (SHD={metrics_pc['SHD']})",     color="steelblue")
     ax.bar(x + width/2, lingam_vals, width, label=f"LiNGAM (SHD={metrics_lingam['SHD']})", color="darkorange")
-    ax.set_xticks(x); ax.set_xticklabels(keys)
+    ax.set_xticks(x); ax.set_xticklabels(["precision", "recall", "F1", "orientation"])
     ax.set_ylim(0, 1.1); ax.set_ylabel("Score")
     ax.set_title("Causal Discovery — PC vs. LiNGAM")
     ax.legend()

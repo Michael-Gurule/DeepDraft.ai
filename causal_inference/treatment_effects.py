@@ -329,52 +329,50 @@ def compute_qini_curve(
     tau_hat: np.ndarray,
     D: np.ndarray,
     Y: np.ndarray,
+    propensity: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray, float]:
     """
-    Compute the Qini curve for policy value evaluation.
+    Compute the Qini (uplift) curve for policy value evaluation.
 
     The Qini curve evaluates how well τ̂ ranks units by treatment benefit
     without requiring knowledge of the true CATE.
 
     Algorithm:
         1. Sort units by decreasing τ̂ (most treated-beneficial first).
-        2. For each fraction φ ∈ [0,1] of the population targeted:
-           Compute: Qini(φ) = Σ_{i≤φn} [D_i Y_i / π_1 - (1-D_i) Y_i / π_0]
-           where π_1 = P(D=1) and π_0 = P(D=0).
-        3. AUUC (Area Under Uplift Curve) = area between Qini and random policy.
+        2. For each fraction φ ∈ [0,1] of the population targeted, estimate the
+           total effect of treating that group by inverse propensity weighting:
+               Qini(φ) = (1/n) Σ_{i≤φn} [D_i Y_i / e_i - (1-D_i) Y_i / (1-e_i)]
+        3. AUUC (Area Under Uplift Curve) = area between the curve and the
+           random policy, the straight line from 0 to Qini(1).
+
+    The propensity e_i = P(D=1 | X_i) matters. In a randomized experiment it
+    is the same for everyone, and the overall treated share works. When
+    treatment depends on X (confounding), a constant e_i mixes the effect of
+    who got treated into the curve; pass estimated propensities instead.
 
     A better CATE model → higher AUUC (targets the most treatment-responsive units).
 
     Args:
-        tau_hat: (n,) estimated CATE (ranking variable)
-        D:       (n,) binary treatment
-        Y:       (n,) outcome
+        tau_hat:    (n,) estimated CATE (ranking variable)
+        D:          (n,) binary treatment
+        Y:          (n,) outcome
+        propensity: (n,) P(D=1 | X) per unit; None assumes randomization and
+                    uses the treated share for every unit
 
     Returns:
-        fractions: x-axis (proportion treated)
-        qini:      y-axis (uplift)
-        auuc:      area under the Qini curve
+        fractions: x-axis (proportion targeted)
+        qini:      y-axis (estimated cumulative uplift)
+        auuc:      area between the Qini curve and the random policy
     """
     n = len(tau_hat)
+    e = np.full(n, D.mean()) if propensity is None else np.asarray(propensity, dtype=float)
     order = np.argsort(-tau_hat)
-    D_ord, Y_ord = D[order], Y[order]
+    D_ord, Y_ord, e_ord = D[order], Y[order], e[order]
 
-    pi1 = D.mean()
-    pi0 = 1 - pi1
-
-    uplift = []
-    for k in range(1, n + 1):
-        D_k = D_ord[:k]
-        Y_k = Y_ord[:k]
-        n1 = D_k.sum()
-        n0 = k - n1
-        val = (Y_k[D_k == 1].sum() / (pi1 * n) if n1 > 0 else 0) - \
-              (Y_k[D_k == 0].sum() / (pi0 * n) if n0 > 0 else 0)
-        uplift.append(val)
-
+    contrib = D_ord * Y_ord / e_ord - (1 - D_ord) * Y_ord / (1 - e_ord)
+    qini = np.cumsum(contrib) / n
     fractions = np.arange(1, n + 1) / n
-    qini = np.array(uplift)
-    auuc = np.trapezoid(qini, fractions) - np.trapezoid(np.linspace(qini[0], qini[-1], n), fractions)
+    auuc = np.trapezoid(qini, fractions) - np.trapezoid(fractions * qini[-1], fractions)
     return fractions, qini, auuc
 
 
@@ -441,22 +439,26 @@ def plot_qini_curves(
     tau_hat_dict: dict[str, np.ndarray],
     D: np.ndarray,
     Y: np.ndarray,
+    propensity: np.ndarray | None = None,
     filename: str = "qini_curves.png",
 ) -> None:
     """
     Qini curves for policy evaluation without true CATE.
 
     Higher AUUC → better at identifying and targeting the most treatment-responsive units.
-    The random policy line is the baseline (treat randomly regardless of τ̂).
+    The random policy line is the baseline (treat randomly regardless of τ̂):
+    targeting a random fraction φ captures φ of the total uplift.
     """
     fig, ax = plt.subplots(figsize=(8, 5))
     colors = ["steelblue", "darkorange", "green", "red"]
 
     for (label, tau_hat), color in zip(tau_hat_dict.items(), colors):
-        fracs, qini, auuc = compute_qini_curve(tau_hat, D, Y)
+        fracs, qini, auuc = compute_qini_curve(tau_hat, D, Y, propensity)
         ax.plot(fracs, qini, label=f"{label} (AUUC={auuc:.4f})", color=color, linewidth=2)
 
-    ax.axhline(0, color="gray", linestyle="--", linewidth=0.8, label="Random policy")
+    # Every ordering ends at the same total uplift, so one random line serves all
+    ax.plot([0, 1], [0, qini[-1]], color="gray", linestyle="--", linewidth=0.8,
+            label="Random policy")
     ax.set_xlabel("Fraction of population targeted (decreasing τ̂)")
     ax.set_ylabel("Cumulative uplift")
     ax.set_title("Qini Curves — Policy Value Evaluation")
@@ -502,7 +504,10 @@ def main():
     # 5. Visualize
     plot_cate_scatter(tau_hat_dict, tau_te)
     plot_cate_distribution(tau_hat_dict, tau_te)
-    plot_qini_curves(tau_hat_dict, D_te, Y_te)
+    # Treatment here is confounded, so weight the Qini curve by propensities
+    # estimated on the training split (the X-learner's propensity model).
+    e_te = np.clip(x_learner.ps_.predict_proba(X_te)[:, 1], 0.01, 0.99)
+    plot_qini_curves(tau_hat_dict, D_te, Y_te, propensity=e_te)
 
     # 6. ATE summary
     print("\n--- ATE Estimates ---")

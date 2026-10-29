@@ -62,6 +62,10 @@ DEEPDRAFT_FAST=1 MPLBACKEND=Agg python ensemble/xgboost_model.py
 # Run every module in fast mode (what CI does)
 pip install -e ".[all,dev]"
 pytest tests/smoke -n auto
+
+# Unit tests, plus reference tests that check implementations against
+# closed forms, exact small cases, and established libraries
+pytest tests --ignore=tests/smoke
 ```
 
 ---
@@ -202,7 +206,7 @@ Contributions are welcome. Until a full contributing guide lands (roadmap Phase 
 
 1. Read the [module standard](docs/MODULE_STANDARD.md) before adding or rewriting a module.
 2. Install the development tools with `pip install -e ".[dev]"` and run `pre-commit install`.
-3. Make sure `pytest tests/smoke -n auto` passes. A new module needs fast-mode settings (`deepdraft.core.fast_or`) so its demo finishes in seconds, and should save figures with `deepdraft.core.save_figure`.
+3. Make sure `pytest tests/smoke -n auto` and `pytest tests --ignore=tests/smoke` pass. A new module needs fast-mode settings (`deepdraft.core.fast_or`) so its demo finishes in seconds, and should save figures with `deepdraft.core.save_figure`. A from-scratch implementation also needs a reference test in `tests/reference/` that compares it against a closed form, an exact small case, or an established library.
 4. Keep each pull request focused on one module or one cross-cutting change.
 
 ## License

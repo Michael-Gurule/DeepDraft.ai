@@ -134,9 +134,15 @@ class DoubleMLEstimator:
 
     The estimator is:
         θ̂ = (Σ D̃_i²)⁻¹ Σ D̃_i Ỹ_i
-    with variance:
-        Var(θ̂) = σ² / (Σ D̃_i²)
-    where σ² is estimated from the squared residuals.
+    with the heteroskedasticity-robust (sandwich) variance of
+    Chernozhukov et al. (2018):
+        Var(θ̂) = Σ D̃_i² ε̂_i² / (Σ D̃_i²)²,   ε̂_i = Ỹ_i - θ̂ D̃_i
+    The simpler σ² / Σ D̃_i² assumes the outcome noise has the same variance
+    for every unit; it understates the standard error when it does not.
+
+    With a binary treatment and a heterogeneous effect, this partially linear
+    θ̂ is a variance-weighted average of the unit effects, not the ATE. Use
+    AIPWEstimator below for the ATE in that case.
 
     Args:
         n_splits:         K-fold cross-fitting splits
@@ -224,10 +230,9 @@ class DoubleMLEstimator:
         denom = np.dot(D_resid, D_resid)
         theta = np.dot(D_resid, Y_resid) / denom
 
-        # Standard error (sandwich)
+        # Heteroskedasticity-robust (sandwich) standard error
         residuals = Y_resid - theta * D_resid
-        sigma2 = np.mean(residuals ** 2)
-        se = np.sqrt(sigma2 / denom)
+        se = np.sqrt(np.sum(D_resid ** 2 * residuals ** 2)) / denom
 
         # Confidence interval and t-test
         z_crit = stats.norm.ppf((1 + self.confidence_level) / 2)
@@ -241,6 +246,78 @@ class DoubleMLEstimator:
         self.p_value_    = p_value
         self.Y_residuals_ = Y_resid
         self.D_residuals_ = D_resid
+        return self
+
+    def summary(self) -> dict:
+        """Return estimated ATE with inference statistics."""
+        return {
+            "ATE":      self.theta_,
+            "SE":       self.se_,
+            "CI_lower": self.ci_[0],
+            "CI_upper": self.ci_[1],
+            "t_stat":   self.theta_ / self.se_,
+            "p_value":  self.p_value_,
+        }
+
+
+class AIPWEstimator:
+    """
+    Augmented inverse-propensity-weighted (AIPW) estimator of the ATE for a
+    binary treatment, cross-fitted. Also called the DML interactive
+    regression model (IRM).
+
+    For each unit, with cross-fitted nuisances g_d(X) = E[Y | D=d, X] and
+    propensity m(X) = P(D=1 | X):
+        ψ_i = g_1(X_i) - g_0(X_i)
+              + D_i (Y_i - g_1(X_i)) / m(X_i)
+              - (1 - D_i)(Y_i - g_0(X_i)) / (1 - m(X_i))
+        θ̂ = mean(ψ),   SE = std(ψ) / √n
+
+    ψ is doubly robust: θ̂ stays consistent if either the outcome models or
+    the propensity model is right. Unlike the partially linear model, it
+    targets the ATE even when the treatment effect varies across units.
+
+    Args:
+        n_splits:         K-fold cross-fitting splits
+        outcome_model:    sklearn regressor for E[Y | D=d, X]
+        propensity_model: sklearn classifier for P(D=1 | X)
+        clip:             propensity clipping bound; weights explode near 0 or 1
+        confidence_level: for confidence interval construction
+    """
+
+    def __init__(self, n_splits: int = 5, outcome_model=None, propensity_model=None,
+                 clip: float = 0.01, confidence_level: float = 0.95):
+        self.n_splits = n_splits
+        self.outcome_model = outcome_model or GradientBoostingRegressor(
+            n_estimators=100, max_depth=3, random_state=42)
+        self.propensity_model = propensity_model or GradientBoostingClassifier(
+            n_estimators=100, max_depth=3, random_state=42)
+        self.clip = clip
+        self.confidence_level = confidence_level
+
+    def fit(self, X: np.ndarray, D: np.ndarray, Y: np.ndarray) -> "AIPWEstimator":
+        import copy
+        n = len(Y)
+        g0, g1, m = np.zeros(n), np.zeros(n), np.zeros(n)
+        kf = KFold(n_splits=self.n_splits, shuffle=True, random_state=42)
+        for train_idx, test_idx in kf.split(X):
+            X_tr, D_tr, Y_tr = X[train_idx], D[train_idx], Y[train_idx]
+            for d, g in ((0, g0), (1, g1)):
+                model = copy.deepcopy(self.outcome_model)
+                model.fit(X_tr[D_tr == d], Y_tr[D_tr == d])
+                g[test_idx] = model.predict(X[test_idx])
+            ps = copy.deepcopy(self.propensity_model)
+            ps.fit(X_tr, D_tr)
+            m[test_idx] = ps.predict_proba(X[test_idx])[:, 1]
+        m = np.clip(m, self.clip, 1 - self.clip)
+
+        psi = g1 - g0 + D * (Y - g1) / m - (1 - D) * (Y - g0) / (1 - m)
+        self.theta_ = float(psi.mean())
+        self.se_ = float(psi.std(ddof=1) / np.sqrt(n))
+        z_crit = stats.norm.ppf((1 + self.confidence_level) / 2)
+        self.ci_ = (self.theta_ - z_crit * self.se_, self.theta_ + z_crit * self.se_)
+        self.p_value_ = float(2 * (1 - stats.norm.cdf(abs(self.theta_ / self.se_))))
+        self.propensity_ = m
         return self
 
     def summary(self) -> dict:
@@ -456,12 +533,16 @@ def main():
     print(f"DML ATE (binary): {s_b['ATE']:.4f} (true: {true_ate})")
     print(f"95% CI:           [{s_b['CI_lower']:.4f}, {s_b['CI_upper']:.4f}]")
 
-    # Propensity scores for overlap check
-    from sklearn.ensemble import GradientBoostingClassifier
-    ps_model = GradientBoostingClassifier(n_estimators=100, random_state=42)
-    ps_model.fit(X_b, D_b)
-    propensity = ps_model.predict_proba(X_b)[:, 1]
-    plot_overlap(D_b, propensity)
+    # AIPW targets the ATE directly; it matches the partially linear estimate
+    # here because the simulated effect is the same for every unit.
+    aipw = AIPWEstimator(n_splits=fast_or(5, 2)).fit(X_b, D_b, Y_b)
+    s_a = aipw.summary()
+    print(f"AIPW ATE:         {s_a['ATE']:.4f} (true: {true_ate})")
+    print(f"95% CI:           [{s_a['CI_lower']:.4f}, {s_a['CI_upper']:.4f}]")
+
+    # Overlap check with the cross-fitted propensity scores. In-sample scores
+    # from a flexible classifier overfit toward 0 and 1 and exaggerate poor overlap.
+    plot_overlap(D_b, aipw.propensity_)
 
 
 if __name__ == "__main__":

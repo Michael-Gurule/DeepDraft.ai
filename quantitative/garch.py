@@ -94,9 +94,14 @@ def generate_return_series(
     sigma2  = np.zeros(n)
     sigma2[0] = omega / (1 - alpha - beta)  # unconditional variance
 
+    # GARCH needs unit-variance shocks so that sigma2 is the conditional
+    # variance. A raw Student-t with nu degrees of freedom has variance
+    # nu / (nu - 2) (1.5 for nu = 6), so rescale it.
+    nu = 6
+    t_scale = np.sqrt((nu - 2) / nu)
     for t in range(1, n):
         sigma2[t] = omega + alpha * returns[t-1]**2 + beta * sigma2[t-1]
-        returns[t] = np.sqrt(sigma2[t]) * rng.standard_t(df=6)
+        returns[t] = np.sqrt(sigma2[t]) * rng.standard_t(df=nu) * t_scale
 
     dates = pd.date_range(start="2014-01-01", periods=n, freq="B")
     return pd.Series(returns, index=dates, name="return_pct")
@@ -265,42 +270,106 @@ def forecast_volatility(result, horizon: int = 10) -> pd.DataFrame:
     return forecast_df
 
 
-def calculate_var(result, returns: pd.Series,
-                   confidence: float = 0.99) -> pd.Series:
+def var_quantile(result, confidence: float = 0.99) -> float:
     """
-    1-day Value at Risk (VaR) at given confidence level.
+    Lower-tail quantile z_α of the model's STANDARDIZED innovation distribution.
 
-    VaR_t = μ_t + σ_t · z_α
-    where z_α is the quantile of the assumed return distribution.
+    arch's Student-t has unit variance, so its quantile is not the plain
+    stats.t.ppf(α, ν): it is stats.t.ppf(α, ν) * sqrt((ν - 2) / ν). Using the
+    unscaled quantile overstates VaR (by about 22% for ν = 6). Asking the
+    fitted distribution for its own ppf gets this right for every
+    distribution arch supports (normal, t, skewt, ged).
+    """
+    dist = result.model.distribution
+    n_dist = dist.num_params
+    dist_params = result.params.iloc[-n_dist:].values if n_dist else None
+    return float(dist.ppf(1 - confidence, dist_params))
+
+
+def kupiec_test(violations: np.ndarray, confidence: float = 0.99) -> dict:
+    """
+    Kupiec (1995) proportion-of-failures test for a VaR backtest.
+
+    H0: the violation probability equals α = 1 - confidence. The likelihood
+    ratio of the observed violation rate x/T against α,
+        LR = -2 ln[(1-α)^(T-x) α^x] + 2 ln[(1-x/T)^(T-x) (x/T)^x],
+    is χ²(1) under H0. A small p-value means the model gets the tail wrong:
+    too many violations (risk understated) or too few (capital wasted).
+
+    Args:
+        violations: boolean array, True where the loss exceeded VaR
+        confidence: VaR confidence level
+
+    Returns:
+        dict with n_obs, n_violations, rate, expected, LR, p_value
+    """
+    v = np.asarray(violations, dtype=bool)
+    T, x = len(v), int(v.sum())
+    a = 1 - confidence
+    rate = x / T
+
+    def loglik(p):
+        # x ln p + (T - x) ln(1 - p), with 0 ln 0 = 0
+        out = 0.0
+        if x:
+            out += x * np.log(p)
+        if T - x:
+            out += (T - x) * np.log(1 - p)
+        return out
+
+    lr = float(-2 * (loglik(a) - loglik(rate)))
+    p_value = float(stats.chi2.sf(lr, df=1))
+    return {"n_obs": T, "n_violations": x, "rate": rate, "expected": a,
+            "LR": lr, "p_value": p_value}
+
+
+def backtest_var(returns: pd.Series, confidence: float = 0.99,
+                 test_size: float = 0.25, config: dict = None) -> tuple:
+    """
+    Out-of-sample 1-day Value at Risk (VaR) backtest.
+
+    VaR_t = μ_t + σ_t · z_α, where σ_t is the one-step-ahead volatility
+    forecast from data through day t-1 and z_α is the standardized
+    innovation quantile (see var_quantile).
+
+    The model is fit on the first (1 - test_size) of the series; its
+    parameters stay fixed while it forecasts each later day from the data
+    before it. Backtesting on the fitting sample would grade the model on
+    returns that shaped its parameters.
 
     Args:
         confidence: e.g., 0.99 for 99% VaR
+        test_size:  fraction of the series, at the end, used for the backtest
     Returns:
-        VaR series (negative = expected maximum loss)
+        (VaR series over the test period, negative = loss threshold;
+         Kupiec test results)
     """
-    alpha     = 1 - confidence
-    cond_mean = result.params.get("mu", 0)
-    cond_vol  = result.conditional_volatility
+    if config is None:
+        config = GARCH_CONFIG
+    split = int(len(returns) * (1 - test_size))
+    result = build_garch(returns, config).fit(last_obs=split, disp="off")
 
-    # Use t-distribution quantile if t dist was used
-    dist_name = GARCH_CONFIG["dist"]
-    if dist_name == "t":
-        nu = result.params.get("nu", 8)
-        z  = stats.t.ppf(alpha, df=nu)
-    else:
-        z = stats.norm.ppf(alpha)
+    # Row t of the forecast holds the forecast for day t+1 made at day t, so
+    # start one day before the test period and drop the final row.
+    fc = result.forecast(horizon=1, start=split - 1, reindex=False)
+    mu    = fc.mean["h.1"].values[:-1]
+    sigma = np.sqrt(fc.variance["h.1"].values[:-1])
 
-    var_series = cond_mean + cond_vol * z
-    print(f"\n  VaR({confidence*100:.0f}%) stats:")
+    z = var_quantile(result, confidence)
+    var_series = pd.Series(mu + sigma * z, index=returns.index[split:], name="VaR")
+
+    print(f"\n  Out-of-sample VaR({confidence*100:.0f}%), {len(var_series)} days:")
+    print(f"    z_alpha: {z:.4f}  (standardized {config['dist']} quantile)")
     print(f"    Mean:    {var_series.mean():.4f}%")
     print(f"    Min:     {var_series.min():.4f}%  (worst day)")
     print(f"    Max:     {var_series.max():.4f}%  (calmest day)")
 
-    # Kupiec test: expected VaR violations
-    violations = (returns < var_series).mean()
-    expected   = alpha
-    print(f"\n  VaR violations: {violations*100:.2f}%  (expected: {expected*100:.2f}%)")
-    return var_series
+    kupiec = kupiec_test(returns.iloc[split:].values < var_series.values, confidence)
+    print(f"\n  VaR violations: {kupiec['n_violations']} / {kupiec['n_obs']} "
+          f"= {kupiec['rate']*100:.2f}%  (expected: {kupiec['expected']*100:.2f}%)")
+    print(f"  Kupiec LR = {kupiec['LR']:.3f}, p = {kupiec['p_value']:.3f}"
+          f"  ({'reject' if kupiec['p_value'] < 0.05 else 'do not reject'} correct coverage at 5%)")
+    return var_series, kupiec
 
 
 # ─────────────────────────────────────────────
@@ -342,7 +411,7 @@ def plot_var(returns: pd.Series, var_series: pd.Series,
     plt.scatter(returns.index[violations_mask], returns[violations_mask],
                 c="red", s=10, zorder=5, label=f"Violations ({violations_mask.sum()})")
     plt.ylabel("Return (%)")
-    plt.title(f"GARCH — VaR({confidence*100:.0f}%) Backtesting")
+    plt.title(f"GARCH — Out-of-Sample VaR({confidence*100:.0f}%) Backtest")
     plt.legend()
     plt.tight_layout()
     save_figure("garch_var.png", dpi=150)
@@ -389,12 +458,12 @@ def main():
     # Volatility forecast
     forecast_df = forecast_volatility(result, horizon=10)
 
-    # VaR
-    var_99 = calculate_var(result, returns, confidence=0.99)
+    # VaR, backtested out of sample
+    var_99, _ = backtest_var(returns, confidence=0.99)
 
     # Visualizations
     plot_returns_and_volatility(returns, cond_vol)
-    plot_var(returns, var_99)
+    plot_var(returns.loc[var_99.index], var_99)
     plot_volatility_forecast(forecast_df)
 
 
