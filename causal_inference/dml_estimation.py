@@ -67,6 +67,8 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import r2_score
 from scipy import stats
 
+from deepdraft.core import fast_or, save_figure
+
 
 # ─────────────────────────────────────────────
 # DATA
@@ -299,7 +301,7 @@ def evaluate_ate_estimators(
     }
 
     # 2. DML with GradientBoosting
-    dml = DoubleMLEstimator(n_splits=5, treatment_type=treatment_type)
+    dml = DoubleMLEstimator(n_splits=fast_or(5, 2), treatment_type=treatment_type)
     dml.fit(X, D, Y)
     s = dml.summary()
     s["bias"] = abs(s["ATE"] - true_ate)
@@ -310,7 +312,7 @@ def evaluate_ate_estimators(
     lasso_out = LassoCV(cv=3, random_state=42, max_iter=2000)
     lasso_trt = LassoCV(cv=3, random_state=42, max_iter=2000) if treatment_type == "continuous" \
                 else LogisticRegressionCV(cv=3, max_iter=500, random_state=42)
-    dml_lasso = DoubleMLEstimator(n_splits=5, outcome_model=lasso_out,
+    dml_lasso = DoubleMLEstimator(n_splits=fast_or(5, 2), outcome_model=lasso_out,
                                    treatment_model=lasso_trt, treatment_type=treatment_type)
     dml_lasso.fit(X, D, Y)
     s2 = dml_lasso.summary()
@@ -350,8 +352,7 @@ def plot_residualization(dml: DoubleMLEstimator, true_ate: float) -> None:
     axes.set_title("Double ML — FWL Residuals")
     axes.legend()
     plt.tight_layout()
-    plt.savefig("dml_residuals.png", dpi=150)
-    plt.show()
+    save_figure("dml_residuals.png", dpi=150)
 
 
 def plot_estimator_comparison(results: dict, true_ate: float) -> None:
@@ -380,8 +381,7 @@ def plot_estimator_comparison(results: dict, true_ate: float) -> None:
     ax.set_title("ATE Estimator Comparison — Forest Plot")
     ax.legend()
     plt.tight_layout()
-    plt.savefig("dml_comparison.png", dpi=150)
-    plt.show()
+    save_figure("dml_comparison.png", dpi=150)
 
 
 def plot_overlap(D: np.ndarray, propensity: np.ndarray | None = None) -> None:
@@ -410,8 +410,7 @@ def plot_overlap(D: np.ndarray, propensity: np.ndarray | None = None) -> None:
     plt.title("Overlap Check — Propensity Score Distribution")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("dml_overlap.png", dpi=150)
-    plt.show()
+    save_figure("dml_overlap.png", dpi=150)
 
 
 # ─────────────────────────────────────────────
@@ -426,12 +425,12 @@ def main():
     # 1. Continuous treatment
     print("\n--- Continuous Treatment ---")
     X, D, Y = generate_observational_data(
-        n_samples=2000, n_confounders=10,
+        n_samples=fast_or(2000, 400), n_confounders=10,
         true_ate=true_ate, treatment_type="continuous",
     )
     print(f"Data shape: X={X.shape}, D={D.shape}, Y={Y.shape}")
 
-    dml = DoubleMLEstimator(n_splits=5, treatment_type="continuous")
+    dml = DoubleMLEstimator(n_splits=fast_or(5, 2), treatment_type="continuous")
     dml.fit(X, D, Y)
     s = dml.summary()
     print(f"DML ATE:    {s['ATE']:.4f} (true: {true_ate})")
@@ -448,10 +447,10 @@ def main():
     # 2. Binary treatment
     print("\n--- Binary Treatment ---")
     X_b, D_b, Y_b = generate_observational_data(
-        n_samples=2000, n_confounders=10,
+        n_samples=fast_or(2000, 400), n_confounders=10,
         true_ate=true_ate, treatment_type="binary",
     )
-    dml_b = DoubleMLEstimator(n_splits=5, treatment_type="binary")
+    dml_b = DoubleMLEstimator(n_splits=fast_or(5, 2), treatment_type="binary")
     dml_b.fit(X_b, D_b, Y_b)
     s_b = dml_b.summary()
     print(f"DML ATE (binary): {s_b['ATE']:.4f} (true: {true_ate})")

@@ -63,6 +63,8 @@ from sklearn.metrics import (
     ConfusionMatrixDisplay
 )
 
+from deepdraft.core import save_figure
+
 
 # ─────────────────────────────────────────────
 # DATA
@@ -142,8 +144,7 @@ def kdistance_plot(X_scaled: np.ndarray, k: int = None) -> float:
     plt.title(f"DBSCAN — k-Distance Plot (k={k})")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("dbscan_kdistance.png", dpi=150)
-    plt.show()
+    save_figure("dbscan_kdistance.png", dpi=150)
 
     print(f"Suggested eps: {suggested_eps:.4f}  (k={k})")
     return float(suggested_eps)
@@ -310,8 +311,7 @@ def eps_sweep(X_scaled: np.ndarray, y: np.ndarray,
     lines2, labels2 = ax2.get_legend_handles_labels()
     ax1.legend(lines1 + lines2, labels1 + labels2)
     plt.tight_layout()
-    plt.savefig("dbscan_eps_sweep.png", dpi=150)
-    plt.show()
+    save_figure("dbscan_eps_sweep.png", dpi=150)
 
     best_eps = eps_range[np.argmax(aucs)]
     print(f"Best eps by ROC-AUC: {best_eps:.3f}  (AUC={max(aucs):.4f})")
@@ -347,8 +347,7 @@ def plot_clusters_2d(X: np.ndarray, labels: np.ndarray, y: np.ndarray) -> None:
     plt.title("DBSCAN — Cluster Assignments (PCA 2D)")
     plt.legend(loc="best", fontsize=8)
     plt.tight_layout()
-    plt.savefig("dbscan_clusters.png", dpi=150)
-    plt.show()
+    save_figure("dbscan_clusters.png", dpi=150)
 
 
 def plot_score_distribution(scores: np.ndarray, y: np.ndarray) -> None:
@@ -361,8 +360,7 @@ def plot_score_distribution(scores: np.ndarray, y: np.ndarray) -> None:
     plt.title("DBSCAN — Anomaly Score Distribution")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("dbscan_scores.png", dpi=150)
-    plt.show()
+    save_figure("dbscan_scores.png", dpi=150)
 
 
 def plot_confusion_matrix(labels: np.ndarray, y: np.ndarray) -> None:
@@ -372,8 +370,7 @@ def plot_confusion_matrix(labels: np.ndarray, y: np.ndarray) -> None:
                            display_labels=["Normal", "Anomaly"]).plot(cmap="Oranges")
     plt.title("DBSCAN — Confusion Matrix")
     plt.tight_layout()
-    plt.savefig("dbscan_confusion.png", dpi=150)
-    plt.show()
+    save_figure("dbscan_confusion.png", dpi=150)
 
 
 # ─────────────────────────────────────────────

@@ -36,6 +36,8 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from sklearn.pipeline import Pipeline
 from sklearn.datasets import make_regression
 
+from deepdraft.core import save_figure
+
 
 # ─────────────────────────────────────────────
 # DATA
@@ -218,8 +220,7 @@ def plot_predictions(model, X_test: np.ndarray, y_test: np.ndarray) -> None:
     plt.title("Linear Regression — Actual vs. Predicted")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("linear_regression_predictions.png", dpi=150)
-    plt.show()
+    save_figure("linear_regression_predictions.png", dpi=150)
 
 
 def plot_residuals(model, X_test: np.ndarray, y_test: np.ndarray) -> None:
@@ -241,8 +242,7 @@ def plot_residuals(model, X_test: np.ndarray, y_test: np.ndarray) -> None:
     plt.ylabel("Residual")
     plt.title("Residual Plot")
     plt.tight_layout()
-    plt.savefig("linear_regression_residuals.png", dpi=150)
-    plt.show()
+    save_figure("linear_regression_residuals.png", dpi=150)
 
 
 def plot_coefficients(model, feature_names: list | None = None) -> None:
@@ -269,8 +269,7 @@ def plot_coefficients(model, feature_names: list | None = None) -> None:
     plt.ylabel("Coefficient")
     plt.title("Linear Regression — Feature Coefficients")
     plt.tight_layout()
-    plt.savefig("linear_regression_coefficients.png", dpi=150)
-    plt.show()
+    save_figure("linear_regression_coefficients.png", dpi=150)
 
 
 # ─────────────────────────────────────────────

@@ -60,6 +60,8 @@ from sklearn.metrics import (
 from sklearn.pipeline import Pipeline
 from sklearn.datasets import make_classification, fetch_20newsgroups
 
+from deepdraft.core import fast_or, save_figure
+
 
 # ─────────────────────────────────────────────
 # DATA
@@ -303,11 +305,11 @@ def tune_multinomial(X_train_text: list, y_train: np.ndarray) -> Pipeline:
     """
     pipeline = build_text_pipeline()
     param_grid = {
-        "vectorizer__ngram_range": [(1, 1), (1, 2)],
-        "vectorizer__max_features": [10000, 20000, None],
-        "model__alpha": [0.01, 0.1, 0.5, 1.0, 5.0],
+        "vectorizer__ngram_range": fast_or([(1, 1), (1, 2)], [(1, 1)]),
+        "vectorizer__max_features": fast_or([10000, 20000, None], [10000]),
+        "model__alpha": fast_or([0.01, 0.1, 0.5, 1.0, 5.0], [0.1, 1.0]),
     }
-    search = GridSearchCV(pipeline, param_grid, cv=5, scoring="accuracy", n_jobs=-1)
+    search = GridSearchCV(pipeline, param_grid, cv=fast_or(5, 2), scoring="accuracy", n_jobs=-1)
     search.fit(X_train_text, y_train)
     print(f"Best params: {search.best_params_}")
     print(f"Best CV accuracy: {search.best_score_:.4f}")
@@ -324,8 +326,7 @@ def plot_confusion_matrix(model, X_test, y_test, title: str = "Naive Bayes") -> 
     ConfusionMatrixDisplay(confusion_matrix(y_test, y_pred)).plot(cmap="Blues")
     plt.title(f"{title} — Confusion Matrix")
     plt.tight_layout()
-    plt.savefig(f"{title.lower().replace(' ', '_')}_confusion.png", dpi=150)
-    plt.show()
+    save_figure(f"{title.lower().replace(' ', '_')}_confusion.png", dpi=150)
 
 
 def plot_top_features_per_class(pipeline: Pipeline, class_names: list,
@@ -365,8 +366,7 @@ def plot_top_features_per_class(pipeline: Pipeline, class_names: list,
 
     plt.suptitle("Top Discriminative Features per Class")
     plt.tight_layout()
-    plt.savefig("naive_bayes_top_features.png", dpi=150)
-    plt.show()
+    save_figure("naive_bayes_top_features.png", dpi=150)
 
 
 def compare_variants(X_test: np.ndarray, y_test: np.ndarray,
@@ -391,8 +391,7 @@ def compare_variants(X_test: np.ndarray, y_test: np.ndarray,
     plt.ylabel("Accuracy")
     plt.title("Naive Bayes Variant Comparison")
     plt.tight_layout()
-    plt.savefig("naive_bayes_comparison.png", dpi=150)
-    plt.show()
+    save_figure("naive_bayes_comparison.png", dpi=150)
 
 
 # ─────────────────────────────────────────────

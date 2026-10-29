@@ -63,6 +63,8 @@ from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
 from statsmodels.stats.diagnostic import acorr_ljungbox
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 
+from deepdraft.core import fast_or, save_figure
+
 
 # ─────────────────────────────────────────────
 # DATA
@@ -138,8 +140,7 @@ def plot_acf_pacf(series: pd.Series, lags: int = 40) -> None:
     plot_acf(series.dropna(),  lags=lags, ax=ax1, title="ACF  (→ MA order q)")
     plot_pacf(series.dropna(), lags=lags, ax=ax2, title="PACF (→ AR order p)")
     plt.tight_layout()
-    plt.savefig("arima_acf_pacf.png", dpi=150)
-    plt.show()
+    save_figure("arima_acf_pacf.png", dpi=150)
 
 
 # ─────────────────────────────────────────────
@@ -280,8 +281,7 @@ def residual_diagnostics(fitted_model) -> None:
     plot_acf(resid, lags=30, ax=axes[2], title="Residual ACF")
     plt.suptitle("ARIMA — Residual Diagnostics")
     plt.tight_layout()
-    plt.savefig("arima_residuals.png", dpi=150)
-    plt.show()
+    save_figure("arima_residuals.png", dpi=150)
 
 
 # ─────────────────────────────────────────────
@@ -305,8 +305,7 @@ def plot_forecast(series: pd.Series, forecast_df: pd.DataFrame,
     plt.title(title)
     plt.legend()
     plt.tight_layout()
-    plt.savefig("arima_forecast.png", dpi=150)
-    plt.show()
+    save_figure("arima_forecast.png", dpi=150)
 
 
 def plot_train_test_forecast(series: pd.Series, train: pd.Series,
@@ -326,8 +325,7 @@ def plot_train_test_forecast(series: pd.Series, train: pd.Series,
     plt.title("ARIMA — Train/Test Evaluation")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("arima_train_test.png", dpi=150)
-    plt.show()
+    save_figure("arima_train_test.png", dpi=150)
 
 
 # ─────────────────────────────────────────────
@@ -356,7 +354,7 @@ def main():
 
     # Auto order selection
     print("\nAuto order selection:")
-    p, d, q = auto_order_selection(train)
+    p, d, q = auto_order_selection(train, p_range=range(0, fast_or(4, 2)), q_range=range(0, fast_or(4, 2)))
 
     # Fit ARIMA
     print(f"\nFitting ARIMA({p},{d},{q})...")

@@ -51,6 +51,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 
+from deepdraft.core import fast_or, save_figure
+
 # ---------------------------------------------------------------------------
 # CONFIG — replace with your values
 # ---------------------------------------------------------------------------
@@ -59,14 +61,14 @@ CONFIG = {
     "horizon": 24,            # Placeholder: forecast steps ahead
     "n_stacks": 2,            # Placeholder: number of stacks
     "n_blocks": 3,            # Placeholder: blocks per stack
-    "hidden": 512,            # Placeholder: FC hidden units
+    "hidden": fast_or(512, 32),  # Placeholder: FC hidden units
     "n_layers": 4,            # Placeholder: FC layers per block
     "dropout": 0.0,           # Placeholder: dropout probability
     "poly_degree": 3,         # Placeholder: trend polynomial degree
     "n_harmonics": 12,        # Placeholder: seasonality Fourier harmonics
     "lr": 1e-3,               # Placeholder: learning rate
     "batch_size": 256,        # Placeholder: mini-batch size
-    "max_epochs": 50,         # Placeholder: training epochs
+    "max_epochs": fast_or(50, 1),  # Placeholder: training epochs
     "patience": 10,           # Placeholder: early stopping patience
     "val_fraction": 0.1,      # Placeholder: fraction of series for validation
     "nhits_pool_sizes": [8, 4, 1],  # Placeholder: N-HiTS pooling per stack
@@ -717,8 +719,7 @@ def plot_forecast(
     plt.legend()
     plt.title(title)
     plt.tight_layout()
-    plt.savefig("nbeats_forecast.png", dpi=150)
-    plt.show()
+    save_figure("nbeats_forecast.png", dpi=150)
     print("Saved nbeats_forecast.png")
 
 
@@ -753,8 +754,7 @@ def plot_decomposition(model: NBeats, x: torch.Tensor) -> None:
         ax.legend()
 
     plt.tight_layout()
-    plt.savefig("nbeats_decomposition.png", dpi=150)
-    plt.show()
+    save_figure("nbeats_decomposition.png", dpi=150)
     print("Saved nbeats_decomposition.png")
 
 
@@ -773,8 +773,7 @@ def plot_training_curves(history: dict) -> None:
     plt.legend()
     plt.title("Training Curves")
     plt.tight_layout()
-    plt.savefig("nbeats_training.png", dpi=150)
-    plt.show()
+    save_figure("nbeats_training.png", dpi=150)
 
 
 # ---------------------------------------------------------------------------
@@ -855,7 +854,7 @@ def main():
 
     print("Generating synthetic series...")
     series = generate_synthetic_series(
-        n=3000,
+        n=fast_or(3000, 800),
         trend_slope=0.005,
         seasonality_period=24,
         noise_std=0.15,
@@ -930,7 +929,7 @@ def main():
 
     print("\n--- Benchmark (quick, 20 epochs) ---")
     benchmark(series, lookback=lookback, horizon=horizon,
-              hidden=128, max_epochs=20, device=device)
+              hidden=fast_or(128, 32), max_epochs=fast_or(20, 1), device=device)
 
 
 if __name__ == "__main__":

@@ -60,6 +60,8 @@ from sklearn.metrics import (
 )
 from sklearn.datasets import make_classification, make_regression
 
+from deepdraft.core import fast_or, save_figure
+
 
 # ─────────────────────────────────────────────
 # DATA
@@ -117,7 +119,7 @@ BASE_DEEPER = DecisionTreeClassifier(
 
 CLASSIFIER_CONFIG = {
     "estimator":     BASE_STUMP,    # weak learner; default = DecisionTreeClassifier(max_depth=1)
-    "n_estimators":  100,           # number of boosting rounds
+    "n_estimators":  fast_or(100, 20),  # number of boosting rounds
     "learning_rate": 1.0,           # shrinks each learner's contribution; try 0.1–1.0
     "random_state":  42,
 }
@@ -191,9 +193,9 @@ def tune_adaboost(X_train: np.ndarray, y_train: np.ndarray) -> AdaBoostClassifie
     param_grid = [
         {
             "estimator": [DecisionTreeClassifier(max_depth=d, random_state=42)
-                          for d in [1, 2, 3]],
-            "n_estimators":  [50, 100, 200],
-            "learning_rate": [0.1, 0.5, 1.0],
+                          for d in fast_or([1, 2, 3], [1])],
+            "n_estimators":  fast_or([50, 100, 200], [20]),
+            "learning_rate": fast_or([0.1, 0.5, 1.0], [0.5, 1.0]),
         }
     ]
     search = GridSearchCV(
@@ -241,8 +243,7 @@ def plot_staged_accuracy(model: AdaBoostClassifier,
     plt.title("AdaBoost — Staged Test Error")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("adaboost_staged_error.png", dpi=150)
-    plt.show()
+    save_figure("adaboost_staged_error.png", dpi=150)
     print(f"Optimal n_estimators from staged error: {best_n}")
 
 
@@ -263,8 +264,7 @@ def plot_estimator_weights(model: AdaBoostClassifier) -> None:
     plt.ylabel("Weight (alpha)")
     plt.title("AdaBoost — Weak Learner Weights")
     plt.tight_layout()
-    plt.savefig("adaboost_weights.png", dpi=150)
-    plt.show()
+    save_figure("adaboost_weights.png", dpi=150)
 
 
 def plot_sample_weights_evolution(X_train: np.ndarray, y_train: np.ndarray,
@@ -316,8 +316,7 @@ def plot_sample_weights_evolution(X_train: np.ndarray, y_train: np.ndarray,
 
     plt.suptitle("AdaBoost — Sample Weight Evolution (dot size ∝ weight)")
     plt.tight_layout()
-    plt.savefig("adaboost_sample_weights.png", dpi=150)
-    plt.show()
+    save_figure("adaboost_sample_weights.png", dpi=150)
 
 
 def plot_confusion_matrix(model, X_test: np.ndarray, y_test: np.ndarray) -> None:
@@ -326,8 +325,7 @@ def plot_confusion_matrix(model, X_test: np.ndarray, y_test: np.ndarray) -> None
     ConfusionMatrixDisplay(confusion_matrix(y_test, y_pred)).plot(cmap="Blues")
     plt.title("AdaBoost — Confusion Matrix")
     plt.tight_layout()
-    plt.savefig("adaboost_confusion.png", dpi=150)
-    plt.show()
+    save_figure("adaboost_confusion.png", dpi=150)
 
 
 # ─────────────────────────────────────────────

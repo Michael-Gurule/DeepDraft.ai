@@ -72,6 +72,8 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import r2_score
 
+from deepdraft.core import fast_or, save_figure
+
 
 # ─────────────────────────────────────────────
 # DATA
@@ -346,8 +348,7 @@ def plot_local_explanation(
     ax.set_xlabel("Local coefficient (attribution)")
     ax.set_title(f"{title}\nprediction={pred:.3f} | surrogate R²={r2:.3f}")
     plt.tight_layout()
-    plt.savefig(filename, dpi=150)
-    plt.show()
+    save_figure(filename, dpi=150)
 
 
 def plot_global_lime(
@@ -382,8 +383,7 @@ def plot_global_lime(
     plt.xlabel("Mean |LIME coefficient|")
     plt.title(title)
     plt.tight_layout()
-    plt.savefig(filename, dpi=150)
-    plt.show()
+    save_figure(filename, dpi=150)
 
 
 def plot_stability(
@@ -418,8 +418,7 @@ def plot_stability(
     ax.set_xlabel("LIME coefficient (mean ± std across runs)")
     ax.set_title("LIME Stability — Coefficient Variability")
     plt.tight_layout()
-    plt.savefig(filename, dpi=150)
-    plt.show()
+    save_figure(filename, dpi=150)
 
 
 def plot_fidelity_distribution(
@@ -443,8 +442,7 @@ def plot_fidelity_distribution(
     plt.title("LIME — Surrogate Fidelity Distribution")
     plt.legend()
     plt.tight_layout()
-    plt.savefig(filename, dpi=150)
-    plt.show()
+    save_figure(filename, dpi=150)
 
 
 # ─────────────────────────────────────────────
@@ -464,7 +462,7 @@ def main():
 
     explainer = LIMETabularExplainer(
         clf, X_train, feat_names,
-        n_samples=1000, n_features_exp=10, mode="classification",
+        n_samples=fast_or(1000, 200), n_features_exp=10, mode="classification",
     )
 
     # Explain a single instance
@@ -476,7 +474,7 @@ def main():
 
     # Stability check
     print("\nStability analysis (5 runs on same sample)...")
-    stability = explainer.stability_report(X_test[0], n_runs=5)
+    stability = explainer.stability_report(X_test[0], n_runs=fast_or(5, 2))
     plot_stability(stability, feat_names)
 
     # Global importance (over 50 test samples)
@@ -488,7 +486,7 @@ def main():
     # Fidelity distribution
     print("Computing fidelity distribution (100 samples)...")
     fidelities = [explainer.explain_instance(X_test[i])["surrogate_r2"]
-                  for i in range(100)]
+                  for i in range(fast_or(100, 5))]
     plot_fidelity_distribution(fidelities)
 
     # 2. Regression
@@ -501,7 +499,7 @@ def main():
 
     reg_explainer = LIMETabularExplainer(
         reg, X_tr, reg_feat_names,
-        n_samples=1000, n_features_exp=8, mode="regression",
+        n_samples=fast_or(1000, 200), n_features_exp=8, mode="regression",
     )
     reg_result = reg_explainer.explain_instance(X_te[0])
     print(f"Sample 0 — prediction: {reg_result['prediction']:.3f} | "

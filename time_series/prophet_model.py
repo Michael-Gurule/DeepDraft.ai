@@ -54,6 +54,8 @@ from prophet.diagnostics import cross_validation, performance_metrics
 from prophet.plot import plot_plotly, plot_components_plotly
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 
+from deepdraft.core import save_figure
+
 
 # ─────────────────────────────────────────────
 # DATA
@@ -263,8 +265,7 @@ def tune_changepoint_prior(df: pd.DataFrame,
     plt.title("Prophet — Changepoint Prior Scale Tuning")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("prophet_tuning.png", dpi=150)
-    plt.show()
+    save_figure("prophet_tuning.png", dpi=150)
 
     print(f"\n  Best changepoint_prior_scale: {best_scale}")
     return best_scale
@@ -285,8 +286,7 @@ def plot_forecast(model: Prophet, forecast_df: pd.DataFrame,
                    linestyle="--", label="Test start")
         ax.legend()
     plt.tight_layout()
-    plt.savefig("prophet_forecast.png", dpi=150)
-    plt.show()
+    save_figure("prophet_forecast.png", dpi=150)
 
 
 def plot_components(model: Prophet, forecast_df: pd.DataFrame) -> None:
@@ -297,8 +297,7 @@ def plot_components(model: Prophet, forecast_df: pd.DataFrame) -> None:
     fig = model.plot_components(forecast_df, figsize=(10, 8))
     plt.suptitle("Prophet — Component Decomposition", y=1.02)
     plt.tight_layout()
-    plt.savefig("prophet_components.png", dpi=150)
-    plt.show()
+    save_figure("prophet_components.png", dpi=150)
 
 
 def plot_changepoints(model: Prophet, df: pd.DataFrame,
@@ -315,8 +314,7 @@ def plot_changepoints(model: Prophet, df: pd.DataFrame,
     add_changepoints_to_plot(ax, model, forecast_df)
     ax.set_title("Prophet — Trend Changepoints")
     plt.tight_layout()
-    plt.savefig("prophet_changepoints.png", dpi=150)
-    plt.show()
+    save_figure("prophet_changepoints.png", dpi=150)
 
 
 # ─────────────────────────────────────────────

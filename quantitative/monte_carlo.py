@@ -56,6 +56,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from scipy import stats
 
+from deepdraft.core import fast_or, save_figure
+
 
 # ─────────────────────────────────────────────
 # SIMULATION CONFIG
@@ -63,7 +65,7 @@ from scipy import stats
 
 # Placeholder: set parameters from your asset data
 MC_CONFIG = {
-    "n_simulations": 50_000,   # Placeholder: 10k (fast) to 100k (accurate)
+    "n_simulations": fast_or(50_000, 2_000),  # Placeholder: 10k (fast) to 100k (accurate)
     "n_days":        252,      # Placeholder: forecast horizon in trading days
     "dt":            1 / 252,  # daily time step
     "antithetic":    True,     # variance reduction: simulate z and -z pairs
@@ -288,7 +290,7 @@ def convergence_analysis(S0: float, mu: float, sigma: float,
     Demonstrates the 1/√N convergence of MC error.
     """
     if n_range is None:
-        n_range = [500, 1000, 5000, 10000, 50000]
+        n_range = fast_or([500, 1000, 5000, 10000, 50000], [200, 500])
 
     vars_  = []
     cvars_ = []
@@ -319,8 +321,7 @@ def convergence_analysis(S0: float, mu: float, sigma: float,
     plt.legend()
 
     plt.tight_layout()
-    plt.savefig("mc_convergence.png", dpi=150)
-    plt.show()
+    save_figure("mc_convergence.png", dpi=150)
 
 
 # ─────────────────────────────────────────────
@@ -348,8 +349,7 @@ def plot_price_paths(paths: np.ndarray, n_show: int = 200,
     plt.title(title)
     plt.legend()
     plt.tight_layout()
-    plt.savefig("mc_paths.png", dpi=150)
-    plt.show()
+    save_figure("mc_paths.png", dpi=150)
 
 
 def plot_pnl_distribution(pnl: np.ndarray, var: float,
@@ -369,8 +369,7 @@ def plot_pnl_distribution(pnl: np.ndarray, var: float,
     plt.title("Monte Carlo — P&L Distribution")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("mc_pnl_distribution.png", dpi=150)
-    plt.show()
+    save_figure("mc_pnl_distribution.png", dpi=150)
 
 
 def plot_var_by_horizon(S0: float, mu: float, sigma: float,
@@ -386,7 +385,7 @@ def plot_var_by_horizon(S0: float, mu: float, sigma: float,
     cvars_ = []
 
     for h in horizons:
-        paths = simulate_gbm(S0, mu, sigma, h, n_sims=20000, dt=1/252)
+        paths = simulate_gbm(S0, mu, sigma, h, n_sims=fast_or(20000, 1000), dt=1/252)
         r     = calculate_var_cvar(paths, S0, confidence=confidence)
         vars_.append(r["var"])
         cvars_.append(r["cvar"])
@@ -399,8 +398,7 @@ def plot_var_by_horizon(S0: float, mu: float, sigma: float,
     plt.title("Monte Carlo — VaR/CVaR vs Horizon")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("mc_var_horizon.png", dpi=150)
-    plt.show()
+    save_figure("mc_var_horizon.png", dpi=150)
 
 
 # ─────────────────────────────────────────────

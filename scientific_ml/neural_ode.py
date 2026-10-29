@@ -68,6 +68,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset
 
+from deepdraft.core import fast_or, save_figure
+
 DEVICE = (
     "cuda" if torch.cuda.is_available()
     else "mps" if torch.backends.mps.is_available()
@@ -376,7 +378,7 @@ NODE_CONFIG = {
     "n_steps":    20,    # Placeholder: 10–50; more steps → more accurate but slower
     "method":     "rk4", # Placeholder: 'euler', 'rk4'
     "lr":         1e-3,
-    "epochs":     50,
+    "epochs":     fast_or(50, 2),
     "batch_size": 128,
 }
 
@@ -480,8 +482,7 @@ def plot_spiral_boundary(model: ODENetClassifier, X: torch.Tensor,
     plt.title("Neural ODE — Decision Boundary (Spiral)")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("node_boundary.png", dpi=150)
-    plt.show()
+    save_figure("node_boundary.png", dpi=150)
 
 
 def plot_latent_trajectories(model: LatentODE, obs_seq: torch.Tensor,
@@ -507,8 +508,7 @@ def plot_latent_trajectories(model: LatentODE, obs_seq: torch.Tensor,
     axes[0].legend(fontsize=7)
     plt.suptitle("Latent ODE — Reconstruction of Damped Oscillators")
     plt.tight_layout()
-    plt.savefig("node_latent.png", dpi=150)
-    plt.show()
+    save_figure("node_latent.png", dpi=150)
 
 
 def plot_training_curves(history_cls: dict, history_lat: dict) -> None:
@@ -524,8 +524,7 @@ def plot_training_curves(history_cls: dict, history_lat: dict) -> None:
 
     plt.suptitle("Neural ODE — Training Curves")
     plt.tight_layout()
-    plt.savefig("node_training.png", dpi=150)
-    plt.show()
+    save_figure("node_training.png", dpi=150)
 
 
 # ─────────────────────────────────────────────
@@ -537,7 +536,7 @@ def main():
 
     # 1. ODENet classification on spiral data
     print("\n--- ODENet Classifier (Spiral) ---")
-    X, y = generate_spiral_data(n_samples=1000)
+    X, y = generate_spiral_data(n_samples=fast_or(1000, 256))
     model_cls, hist_cls = train_odenet(X, y)
     print(f"  Final accuracy: {hist_cls['acc'][-1]:.4f}")
 

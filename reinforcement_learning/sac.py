@@ -58,6 +58,8 @@ import random
 import matplotlib.pyplot as plt
 import gymnasium as gym
 
+from deepdraft.core import fast_or, save_figure
+
 DEVICE = (
     "cuda" if torch.cuda.is_available()
     else "mps" if torch.backends.mps.is_available()
@@ -78,12 +80,12 @@ CONFIG = {
     "tau":              0.005,           # # Placeholder: soft target update
     "alpha_init":       0.2,             # # Placeholder: initial entropy temp
     "auto_alpha":       True,            # # Placeholder: auto entropy tuning
-    "buffer_size":      100_000,         # # Placeholder:
-    "batch_size":       256,             # # Placeholder:
-    "learning_starts":  5_000,           # # Placeholder:
-    "total_steps":      50_000,          # # Placeholder:
-    "eval_every":       5_000,           # # Placeholder:
-    "eval_episodes":    5,               # # Placeholder:
+    "buffer_size":      fast_or(100_000, 5_000),         # # Placeholder:
+    "batch_size":       fast_or(256, 64),             # # Placeholder:
+    "learning_starts":  fast_or(5_000, 200),           # # Placeholder:
+    "total_steps":      fast_or(50_000, 600),          # # Placeholder:
+    "eval_every":       fast_or(5_000, 300),           # # Placeholder:
+    "eval_episodes":    fast_or(5, 1),               # # Placeholder:
     "log_std_min":      -20,
     "log_std_max":      2,
     "seed":             42,
@@ -400,8 +402,7 @@ def plot_training(history: dict):
     axes[2].set_title("Entropy Temperature α"); axes[2].grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plt.savefig("sac_training.png", dpi=150)
-    plt.show()
+    save_figure("sac_training.png", dpi=150)
     print("Saved: sac_training.png")
 
 

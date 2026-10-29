@@ -69,6 +69,8 @@ from scipy import stats
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LinearRegression
 
+from deepdraft.core import save_figure
+
 
 # ─────────────────────────────────────────────
 # DATA
@@ -511,8 +513,7 @@ def plot_graph(
         plt.title(title)
     plt.axis("off")
     plt.tight_layout()
-    plt.savefig(filename, dpi=150)
-    plt.show()
+    save_figure(filename, dpi=150)
 
 
 def plot_metrics_comparison(metrics_pc: dict, metrics_lingam: dict) -> None:
@@ -533,8 +534,7 @@ def plot_metrics_comparison(metrics_pc: dict, metrics_lingam: dict) -> None:
     ax.set_title("Causal Discovery — PC vs. LiNGAM")
     ax.legend()
     plt.tight_layout()
-    plt.savefig("causal_discovery_comparison.png", dpi=150)
-    plt.show()
+    save_figure("causal_discovery_comparison.png", dpi=150)
 
 
 # ─────────────────────────────────────────────

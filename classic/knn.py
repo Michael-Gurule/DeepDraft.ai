@@ -56,6 +56,8 @@ from sklearn.metrics import (
 from sklearn.pipeline import Pipeline
 from sklearn.datasets import make_classification, make_regression
 
+from deepdraft.core import save_figure
+
 
 # ─────────────────────────────────────────────
 # DATA
@@ -279,8 +281,7 @@ def plot_k_selection_curve(X_train: np.ndarray, y_train: np.ndarray,
     plt.title("KNN — k Selection Curve")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("knn_k_selection.png", dpi=150)
-    plt.show()
+    save_figure("knn_k_selection.png", dpi=150)
 
     print(f"Best k: {best_k}  (test accuracy: {max(test_acc):.4f})")
 
@@ -311,8 +312,7 @@ def plot_decision_boundary_2d(pipeline, X: np.ndarray, y: np.ndarray) -> None:
     plt.xlabel("Feature 0")
     plt.ylabel("Feature 1")
     plt.tight_layout()
-    plt.savefig("knn_decision_boundary.png", dpi=150)
-    plt.show()
+    save_figure("knn_decision_boundary.png", dpi=150)
 
 
 def plot_confusion_matrix(model, X_test: np.ndarray, y_test: np.ndarray) -> None:
@@ -321,8 +321,7 @@ def plot_confusion_matrix(model, X_test: np.ndarray, y_test: np.ndarray) -> None
     ConfusionMatrixDisplay(confusion_matrix(y_test, y_pred)).plot(cmap="Blues")
     plt.title("KNN — Confusion Matrix")
     plt.tight_layout()
-    plt.savefig("knn_confusion.png", dpi=150)
-    plt.show()
+    save_figure("knn_confusion.png", dpi=150)
 
 
 # ─────────────────────────────────────────────

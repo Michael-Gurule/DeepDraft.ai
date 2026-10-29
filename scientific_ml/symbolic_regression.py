@@ -62,12 +62,14 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from sklearn.metrics import r2_score
 
+from deepdraft.core import fast_or, save_figure
+
 # ─────────────────────────────────────────────
 # CONFIG
 # ─────────────────────────────────────────────
 CONFIG = {
-    "pop_size":         500,    # # Placeholder:
-    "n_generations":    50,     # # Placeholder:
+    "pop_size":         fast_or(500, 40),  # # Placeholder:
+    "n_generations":    fast_or(50, 3),  # # Placeholder:
     "max_depth":        4,      # # Placeholder:
     "tournament_size":  7,      # # Placeholder:
     "crossover_prob":   0.7,    # # Placeholder:
@@ -621,8 +623,7 @@ def plot_symbolic_regression(
         ax.legend(); ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plt.savefig(f"symbolic_regression_{dataset_name}.png", dpi=150)
-    plt.show()
+    save_figure(f"symbolic_regression_{dataset_name}.png", dpi=150)
     print(f"Saved: symbolic_regression_{dataset_name}.png")
 
 
@@ -649,8 +650,7 @@ def plot_multi_benchmark_comparison(results: dict):
     axes[1].grid(True, alpha=0.3, axis="x")
 
     plt.tight_layout()
-    plt.savefig("symbolic_regression_benchmark.png", dpi=150)
-    plt.show()
+    save_figure("symbolic_regression_benchmark.png", dpi=150)
     print("Saved: symbolic_regression_benchmark.png")
 
 
@@ -729,7 +729,7 @@ def main():
 
     # ── Multi-benchmark comparison ──────────────────────────────────────
     print("\n=== Multi-Benchmark Comparison ===")
-    results = run_benchmarks({**CONFIG, "n_generations": 30})
+    results = run_benchmarks({**CONFIG, "n_generations": fast_or(30, 3)})
 
     print("\nSummary:")
     for name, m in results.items():

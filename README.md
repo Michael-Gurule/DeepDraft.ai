@@ -45,6 +45,25 @@ Install only the extras you need:
 
 Python 3.10 or newer is required.
 
+### Running options
+
+Modules read three optional environment variables:
+
+| Variable | Effect |
+|----------|--------|
+| `DEEPDRAFT_FAST=1` | Shrinks data, iterations, and search grids so a demo finishes in seconds. Use it to check that a module runs; the metrics are not meaningful in this mode. |
+| `DEEPDRAFT_OUTPUT_DIR=path` | Where figures are saved (default `./outputs`). |
+| `DEEPDRAFT_NO_SHOW=1` | Save figures without opening plot windows. Windows are also skipped automatically with a non-interactive matplotlib backend such as `Agg`. |
+
+```bash
+# Quick headless check of one module
+DEEPDRAFT_FAST=1 MPLBACKEND=Agg python ensemble/xgboost_model.py
+
+# Run every module in fast mode (what CI does)
+pip install -e ".[all,dev]"
+pytest tests/smoke -n auto
+```
+
 ---
 
 ## How a module is organized
@@ -183,7 +202,8 @@ Contributions are welcome. Until a full contributing guide lands (roadmap Phase 
 
 1. Read the [module standard](docs/MODULE_STANDARD.md) before adding or rewriting a module.
 2. Install the development tools with `pip install -e ".[dev]"` and run `pre-commit install`.
-3. Keep each pull request focused on one module or one cross-cutting change.
+3. Make sure `pytest tests/smoke -n auto` passes. A new module needs fast-mode settings (`deepdraft.core.fast_or`) so its demo finishes in seconds, and should save figures with `deepdraft.core.save_figure`.
+4. Keep each pull request focused on one module or one cross-cutting change.
 
 ## License
 

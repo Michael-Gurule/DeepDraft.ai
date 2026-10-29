@@ -63,6 +63,8 @@ from torch.distributions import Normal, Categorical
 from collections import deque
 import gymnasium as gym
 
+from deepdraft.core import fast_or, save_figure
+
 DEVICE = (
     torch.device("cuda") if torch.cuda.is_available()
     else torch.device("mps") if torch.backends.mps.is_available()
@@ -616,8 +618,8 @@ PPO_CONFIG = {
     "value_coef":     0.5,
     "entropy_coef":   0.0,             # Pendulum is continuous; no entropy needed
     "max_grad_norm":  0.5,
-    "rollout_length": 2048,
-    "total_timesteps": 200_000,
+    "rollout_length": fast_or(2048, 256),
+    "total_timesteps": fast_or(200_000, 512),
 }
 
 
@@ -722,6 +724,7 @@ def plot_training(episode_returns: list, window: int = 20) -> None:
         Noisy but trending up  → normal for PPO; smooth by increasing rollout_length
     """
     returns = np.array(episode_returns)
+    window = max(1, min(window, len(returns)))  # short runs (fast mode) have few episodes
     smoothed = np.convolve(returns, np.ones(window) / window, mode="valid")
 
     plt.figure(figsize=(10, 4))
@@ -733,11 +736,10 @@ def plot_training(episode_returns: list, window: int = 20) -> None:
     plt.title("PPO — Training Returns")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("ppo_training.png", dpi=150)
-    plt.show()
+    save_figure("ppo_training.png", dpi=150)
 
 
-def evaluate(agent: PPOAgent, env_id: str, n_episodes: int = 10) -> float:
+def evaluate(agent: PPOAgent, env_id: str, n_episodes: int = fast_or(10, 2)) -> float:
     """
     Evaluate a trained PPO agent deterministically (mean action).
 

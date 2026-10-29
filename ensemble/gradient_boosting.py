@@ -54,6 +54,8 @@ from sklearn.metrics import (
 from sklearn.inspection import permutation_importance
 from sklearn.datasets import make_classification, make_regression
 
+from deepdraft.core import fast_or, save_figure
+
 
 # ─────────────────────────────────────────────
 # DATA
@@ -104,7 +106,7 @@ def load_regression_data(n_samples: int = 600):
 # Placeholder: learning_rate and n_estimators are the most impactful knobs.
 # Use small learning_rate (0.05–0.1) with early stopping for best results.
 GBM_CLASSIFIER_CONFIG = {
-    "n_estimators": 200,         # number of boosting rounds (trees)
+    "n_estimators": fast_or(200, 30),  # number of boosting rounds (trees)
     "learning_rate": 0.1,        # step size shrinkage; smaller → more trees needed
     "max_depth": 4,              # depth per tree; 3–5 is typical
     "min_samples_leaf": 10,      # minimum samples at leaf (regularization)
@@ -116,7 +118,7 @@ GBM_CLASSIFIER_CONFIG = {
 
 # HistGradientBoosting: much faster; preferred for large datasets
 HIST_GBM_CONFIG = {
-    "max_iter": 300,             # equivalent to n_estimators
+    "max_iter": fast_or(300, 30),  # equivalent to n_estimators
     "learning_rate": 0.1,
     "max_depth": 4,
     "min_samples_leaf": 10,
@@ -195,11 +197,11 @@ def tune_gbm(X_train: np.ndarray, y_train: np.ndarray) -> GradientBoostingClassi
         best fitted GradientBoostingClassifier
     """
     param_grid = {
-        "learning_rate": [0.01, 0.05, 0.1, 0.2],
-        "max_depth":     [3, 4, 5],
-        "subsample":     [0.7, 0.8, 1.0],
+        "learning_rate": fast_or([0.01, 0.05, 0.1, 0.2], [0.1]),
+        "max_depth":     fast_or([3, 4, 5], [3]),
+        "subsample":     fast_or([0.7, 0.8, 1.0], [0.8, 1.0]),
     }
-    gbm = GradientBoostingClassifier(n_estimators=200, random_state=42)
+    gbm = GradientBoostingClassifier(n_estimators=fast_or(200, 30), random_state=42)
     search = GridSearchCV(gbm, param_grid, cv=5, scoring="roc_auc", n_jobs=-1)
     search.fit(X_train, y_train)
     print(f"Best params: {search.best_params_}")
@@ -242,8 +244,7 @@ def plot_staged_loss(model: GradientBoostingClassifier,
     plt.title("GBM — Train vs. Test Loss by Boosting Stage")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("gbm_staged_loss.png", dpi=150)
-    plt.show()
+    save_figure("gbm_staged_loss.png", dpi=150)
 
 
 def plot_feature_importance(model, feature_names: list, top_n: int = 15) -> None:
@@ -270,8 +271,7 @@ def plot_feature_importance(model, feature_names: list, top_n: int = 15) -> None
     plt.title(f"GBM — Top {top_n} Feature Importances")
     plt.xticks(rotation=45, ha="right")
     plt.tight_layout()
-    plt.savefig("gbm_feature_importance.png", dpi=150)
-    plt.show()
+    save_figure("gbm_feature_importance.png", dpi=150)
 
 
 def plot_confusion_matrix(model, X_test: np.ndarray, y_test: np.ndarray) -> None:
@@ -280,8 +280,7 @@ def plot_confusion_matrix(model, X_test: np.ndarray, y_test: np.ndarray) -> None
     ConfusionMatrixDisplay(confusion_matrix(y_test, y_pred)).plot(cmap="Oranges")
     plt.title("GBM — Confusion Matrix")
     plt.tight_layout()
-    plt.savefig("gbm_confusion.png", dpi=150)
-    plt.show()
+    save_figure("gbm_confusion.png", dpi=150)
 
 
 # ─────────────────────────────────────────────
@@ -328,7 +327,7 @@ def main():
         Xr, yr, test_size=0.2, random_state=42
     )
     reg = GradientBoostingRegressor(
-        n_estimators=200, learning_rate=0.1, max_depth=4,
+        n_estimators=fast_or(200, 30), learning_rate=0.1, max_depth=4,
         subsample=0.8, random_state=42
     )
     reg.fit(Xr_train, yr_train)

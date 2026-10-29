@@ -67,13 +67,15 @@ from sklearn.metrics import (
     classification_report,
 )
 
+from deepdraft.core import fast_or, save_figure
+
 # ─────────────────────────────────────────────
 # CONFIG
 # ─────────────────────────────────────────────
 CONFIG = {
-    "n_samples":   5000,   # # Placeholder:
+    "n_samples":   fast_or(5000, 400),  # # Placeholder:
     "n_features":  20,     # # Placeholder:
-    "cv":          5,      # # Placeholder: folds for stacking out-of-fold
+    "cv":          fast_or(5, 2),  # # Placeholder: folds for stacking out-of-fold
     "seed":        42,
 }
 
@@ -116,12 +118,12 @@ def get_base_classifiers(seed: int = 42) -> list[tuple]:
     """
     return [
         ("lr",   make_pipeline(StandardScaler(), LogisticRegression(max_iter=500, random_state=seed))),
-        ("rf",   RandomForestClassifier(n_estimators=100, random_state=seed, n_jobs=-1)),
-        ("gbm",  GradientBoostingClassifier(n_estimators=100, max_depth=3, random_state=seed)),
+        ("rf",   RandomForestClassifier(n_estimators=fast_or(100, 20), random_state=seed, n_jobs=-1)),
+        ("gbm",  GradientBoostingClassifier(n_estimators=fast_or(100, 20), max_depth=3, random_state=seed)),
         ("svm",  make_pipeline(StandardScaler(), SVC(probability=True, random_state=seed))),
         ("knn",  make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=15))),
         ("mlp",  make_pipeline(StandardScaler(),
-                               MLPClassifier(hidden_layer_sizes=(64, 32), max_iter=300,
+                               MLPClassifier(hidden_layer_sizes=(64, 32), max_iter=fast_or(300, 30),
                                              random_state=seed))),
     ]
 
@@ -130,8 +132,8 @@ def get_base_regressors(seed: int = 42) -> list[tuple]:
     """# Placeholder: swap or add regression models."""
     return [
         ("lr",  make_pipeline(StandardScaler(), Ridge(alpha=1.0))),
-        ("rf",  RandomForestRegressor(n_estimators=100, random_state=seed, n_jobs=-1)),
-        ("gbm", GradientBoostingRegressor(n_estimators=100, max_depth=3, random_state=seed)),
+        ("rf",  RandomForestRegressor(n_estimators=fast_or(100, 20), random_state=seed, n_jobs=-1)),
+        ("gbm", GradientBoostingRegressor(n_estimators=fast_or(100, 20), max_depth=3, random_state=seed)),
         ("svr", make_pipeline(StandardScaler(), SVR(kernel="rbf"))),
         ("knn", make_pipeline(StandardScaler(), KNeighborsRegressor(n_neighbors=15))),
     ]
@@ -330,8 +332,7 @@ def plot_comparison(df_clf: pd.DataFrame, df_reg: pd.DataFrame = None):
         ax2.grid(True, alpha=0.3, axis="x")
 
     plt.tight_layout()
-    plt.savefig("stacking_voting_comparison.png", dpi=150)
-    plt.show()
+    save_figure("stacking_voting_comparison.png", dpi=150)
     print("Saved: stacking_voting_comparison.png")
 
 
@@ -342,8 +343,7 @@ def plot_meta_learner_comparison(df: pd.DataFrame):
     ax.set_title("Stacking — Meta-Learner Comparison")
     ax.grid(True, alpha=0.3, axis="y")
     plt.tight_layout()
-    plt.savefig("stacking_meta_learners.png", dpi=150)
-    plt.show()
+    save_figure("stacking_meta_learners.png", dpi=150)
     print("Saved: stacking_meta_learners.png")
 
 

@@ -57,6 +57,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 
+from deepdraft.core import fast_or, save_figure
+
 DEVICE = (
     "cuda" if torch.cuda.is_available()
     else "mps" if torch.backends.mps.is_available()
@@ -166,7 +168,7 @@ TFT_CONFIG = {
     "n_quantiles":         3,     # q10, q50, q90
     "lr":                  1e-3,  # Placeholder: 1e-4 to 1e-2
     "batch_size":          32,    # Placeholder: 16–128
-    "epochs":              50,    # Placeholder: 20–200
+    "epochs":              fast_or(50, 2),  # Placeholder: 20–200
     "patience":            10,
     "quantiles":           [0.1, 0.5, 0.9],
 }
@@ -547,8 +549,7 @@ def plot_training_curve(history: dict) -> None:
     plt.title("TFT — Training Curve")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("tft_training.png", dpi=150)
-    plt.show()
+    save_figure("tft_training.png", dpi=150)
 
 
 def plot_forecast_quantiles(model: nn.Module, df: pd.DataFrame,
@@ -597,8 +598,7 @@ def plot_forecast_quantiles(model: nn.Module, df: pd.DataFrame,
 
     plt.suptitle(f"TFT — Quantile Forecasts (Entity {entity_id})")
     plt.tight_layout()
-    plt.savefig("tft_forecasts.png", dpi=150)
-    plt.show()
+    save_figure("tft_forecasts.png", dpi=150)
 
 
 # ─────────────────────────────────────────────
