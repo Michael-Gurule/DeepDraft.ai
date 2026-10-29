@@ -214,9 +214,11 @@ def train_with_early_stopping(
     else:
         model = xgb.XGBRegressor(**REGRESSOR_CONFIG, early_stopping_rounds=early_stopping_rounds)
 
+    # Track the training set too, for the learning curve. XGBoost early-stops
+    # on the LAST entry of eval_set, so the validation set goes last.
     model.fit(
         X_train, y_train,
-        eval_set=[(X_val, y_val)],
+        eval_set=[(X_train, y_train), (X_val, y_val)],
         verbose=False,
     )
 
@@ -357,8 +359,9 @@ def plot_learning_curve(model) -> None:
     """
     Plot training and validation metric over boosting rounds.
 
-    Requires the model to have been trained with eval_set and a metric.
-    Shows when the model begins overfitting (test curve starts rising).
+    Requires the model to have been trained with
+    eval_set=[(X_train, y_train), (X_val, y_val)], as train_with_early_stopping
+    does. Shows when the model begins overfitting (validation curve starts rising).
 
     Fine-tuning tip: the best_iteration attribute shows the optimal stopping point.
     """
@@ -367,16 +370,18 @@ def plot_learning_curve(model) -> None:
         print("No eval results found. Train with eval_set to see learning curves.")
         return
 
-    val_key = list(results.keys())[-1]
+    keys = list(results.keys())          # validation_0, validation_1, ... in eval_set order
+    val_key = keys[-1]                   # the set early stopping watched
     metric  = list(results[val_key].keys())[0]
     iterations = range(1, len(results[val_key][metric]) + 1)
 
     plt.figure(figsize=(8, 4))
-    if "validation_0" in results:
-        plt.plot(iterations, results["validation_0"][metric], label="Train")
+    if len(keys) > 1:
+        plt.plot(iterations, results[keys[0]][metric], label="Train")
     plt.plot(iterations, results[val_key][metric], label="Validation")
-    plt.axvline(model.best_iteration, color="red", linestyle="--",
-                label=f"Best iteration: {model.best_iteration}")
+    # best_iteration counts from 0; the x-axis counts rounds from 1
+    plt.axvline(model.best_iteration + 1, color="red", linestyle="--",
+                label=f"Best round: {model.best_iteration + 1}")
     plt.xlabel("Boosting Round")
     plt.ylabel(metric.upper())
     plt.title("XGBoost — Learning Curve")

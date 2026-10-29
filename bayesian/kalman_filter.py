@@ -121,8 +121,9 @@ class KalmanFilter:
         S = self.H @ self.P @ self.H.T + self.R
         K = self.P @ self.H.T @ np.linalg.inv(S)
         self.x = self.x + K @ innovation
-        self.P = (self._I - K @ self.H) @ self.P
-        # Joseph form for numerical stability
+        # Joseph form of P = (I - KH) P: algebraically the same, but it stays
+        # symmetric and positive semi-definite under rounding. Apply it to the
+        # PREDICTED covariance, once.
         IKH = self._I - K @ self.H
         self.P = IKH @ self.P @ IKH.T + K @ self.R @ K.T
         return self.x.copy(), self.P.copy()
