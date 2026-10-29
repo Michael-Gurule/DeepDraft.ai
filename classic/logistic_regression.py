@@ -26,8 +26,9 @@ Fine-Tuning Recommendations:
       for imbalanced datasets. Monitor precision/recall, not just accuracy.
     - Feature scaling: always scale features — gradient-based solvers converge
       much faster with normalized inputs.
-    - Multi-class: multi_class='multinomial' with solver='lbfgs' uses softmax
-      (true multi-class); multi_class='ovr' trains one binary classifier per class.
+    - Multi-class: scikit-learn fits a multinomial (softmax) model automatically
+      for 3+ classes with the default 'lbfgs' solver. For one-vs-rest, wrap the
+      estimator in sklearn.multiclass.OneVsRestClassifier.
 """
 
 import numpy as np
@@ -41,8 +42,6 @@ from sklearn.metrics import (
 )
 from sklearn.pipeline import Pipeline
 from sklearn.datasets import make_classification
-import warnings
-warnings.filterwarnings("ignore")
 
 
 # ─────────────────────────────────────────────
@@ -97,7 +96,6 @@ MODEL_CONFIG = {
     "solver": "lbfgs",   # 'lbfgs', 'liblinear' (small data), 'saga' (large/sparse + L1)
     "max_iter": 1000,    # increase if convergence warnings appear
     "class_weight": None,  # set to 'balanced' for imbalanced datasets
-    "multi_class": "auto",  # 'ovr' or 'multinomial'
 }
 
 

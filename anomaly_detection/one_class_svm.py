@@ -65,8 +65,6 @@ from sklearn.metrics import (
 from sklearn.model_selection import GridSearchCV, StratifiedKFold
 from sklearn.datasets import make_blobs
 from sklearn.pipeline import Pipeline
-import warnings
-warnings.filterwarnings("ignore")
 
 
 # ─────────────────────────────────────────────

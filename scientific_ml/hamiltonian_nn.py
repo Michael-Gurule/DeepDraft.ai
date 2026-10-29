@@ -50,7 +50,7 @@ Use Cases:
     - Orbital mechanics (N-body gravitational systems)
     - Robotic joint dynamics (mechanical energy conservation)
     - Plasma physics, fluid mechanics (Hamiltonian structure)
-    - Hyperion UAV dynamics: enforce mechanical energy budget in trajectory learning
+    - Vehicle and robot dynamics: enforce energy conservation in trajectory learning
 
 Systems implemented:
     1. Simple pendulum:   H = (1/2)p² - cos(q)       (1 DOF)
@@ -75,8 +75,6 @@ import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 from torch import autograd
-import warnings
-warnings.filterwarnings("ignore")
 
 DEVICE = (
     "cuda" if torch.cuda.is_available()

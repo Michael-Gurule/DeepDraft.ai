@@ -19,9 +19,9 @@ Expression Tree:
   Nodes are binary or unary operators; leaves are variables or constants.
   Example tree for "x₀² + sin(x₁)":
            +
-          / \
+          / \\
         pow   sin
-        / \    \
+        / \\    \\
       x₀   2   x₁
 
 Genetic operations:
@@ -230,9 +230,15 @@ def subtree_crossover(p1: Node, p2: Node, rng: np.random.Generator) -> tuple[Nod
     nodes1 = c1.collect_nodes()
     nodes2 = c2.collect_nodes()
 
-    # Pick random cut points (skip root for simplicity)
-    n1 = nodes1[int(rng.integers(1, max(2, len(nodes1))))]
-    n2 = nodes2[int(rng.integers(1, max(2, len(nodes2))))]
+    # Pick random cut points. Skip the root when the tree has other nodes;
+    # a single-leaf tree can only be cut at its root.
+    def _cut_point(nodes: list[Node]) -> Node:
+        if len(nodes) == 1:
+            return nodes[0]
+        return nodes[int(rng.integers(1, len(nodes)))]
+
+    n1 = _cut_point(nodes1)
+    n2 = _cut_point(nodes2)
 
     # Swap the subtrees by modifying in-place
     n1.node_type, n2.node_type = n2.node_type, n1.node_type

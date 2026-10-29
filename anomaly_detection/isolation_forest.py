@@ -21,7 +21,7 @@ Use Cases:
     - Network intrusion detection
     - Financial fraud detection
     - Manufacturing defect detection
-    - IoT sensor fault detection (e.g., Hyperion sensor health monitoring)
+    - IoT sensor fault detection
     - Log anomaly detection
     - Any high-dimensional, unlabeled dataset
 
@@ -60,8 +60,6 @@ from sklearn.metrics import (
 )
 from sklearn.datasets import make_blobs
 from sklearn.model_selection import GridSearchCV
-import warnings
-warnings.filterwarnings("ignore")
 
 
 # ─────────────────────────────────────────────

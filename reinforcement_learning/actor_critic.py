@@ -21,9 +21,10 @@ Relationship to PPO:
     to prevent destructively large policy updates. A2C is simpler but
     less sample-efficient and more sensitive to learning rate.
 
-Relationship to Hyperion's MAPPO:
-    MAPPO = Multi-Agent PPO = many A2C actors + one centralized critic.
-    Understanding A2C is prerequisite to understanding MAPPO architecture.
+Relationship to MAPPO:
+    MAPPO (Multi-Agent PPO) gives each agent a PPO actor and trains a
+    centralized critic that sees the global state. Understanding A2C is a
+    prerequisite for both PPO and MAPPO.
 
 Use Cases:
     - Continuous and discrete control
@@ -54,8 +55,6 @@ import torch.optim as optim
 from torch.distributions import Normal, Categorical
 import gymnasium as gym
 from collections import deque
-import warnings
-warnings.filterwarnings("ignore")
 
 DEVICE = (
     torch.device("cuda") if torch.cuda.is_available()

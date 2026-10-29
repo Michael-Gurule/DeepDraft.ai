@@ -53,8 +53,6 @@ from sklearn.metrics import (
 )
 from sklearn.inspection import permutation_importance
 from sklearn.datasets import make_classification, make_regression
-import warnings
-warnings.filterwarnings("ignore")
 
 
 # ─────────────────────────────────────────────
@@ -214,38 +212,34 @@ def tune_gbm(X_train: np.ndarray, y_train: np.ndarray) -> GradientBoostingClassi
 # ─────────────────────────────────────────────
 
 def plot_staged_loss(model: GradientBoostingClassifier,
+                      X_train: np.ndarray, y_train: np.ndarray,
                       X_test: np.ndarray, y_test: np.ndarray) -> None:
     """
-    Plot train and test loss at each boosting stage.
+    Plot train and test log-loss at each boosting stage.
 
     This is the primary diagnostic for gradient boosting:
         - Both curves decreasing: model is still learning
         - Test curve plateaus/rises while train continues dropping: overfitting
         - Optimal n_estimators: where test loss is minimized
 
+    staged_predict_proba yields the ensemble's predictions after 1, 2, ...,
+    n_estimators trees, so one fitted model gives the whole curve.
+
     Fine-tuning tip: if test loss plateaus early, reduce n_estimators or use
     early stopping (HistGradientBoosting supports this natively).
     """
-    train_scores = [s for s in model.staged_score(model.__dict__['estimators_'][0].__class__(),
-                                                    model.__dict__['estimators_'][0])]
-    # Use staged_predict_proba for log loss
     from sklearn.metrics import log_loss
-    train_loss, test_loss = [], []
-    for y_pred_staged in model.staged_predict_proba(
-            np.vstack([model.estimators_[0][0].predict(X_test[:1]).reshape(1, -1)] * 1)
-        ) if False else []:
-        pass
 
-    # Compute staged losses manually
-    X_all = np.vstack([X_test, X_test])  # placeholder to avoid refit
-    for stage_pred in model.staged_predict_proba(X_test):
-        test_loss.append(log_loss(y_test, stage_pred))
+    train_loss = [log_loss(y_train, p) for p in model.staged_predict_proba(X_train)]
+    test_loss  = [log_loss(y_test, p) for p in model.staged_predict_proba(X_test)]
+    stages = range(1, len(test_loss) + 1)
 
     plt.figure(figsize=(8, 4))
-    plt.plot(range(1, len(test_loss) + 1), test_loss, label="Test Log-Loss")
+    plt.plot(stages, train_loss, label="Train Log-Loss")
+    plt.plot(stages, test_loss, label="Test Log-Loss")
     plt.xlabel("Boosting Stage (n_estimators)")
     plt.ylabel("Log-Loss")
-    plt.title("GBM — Test Loss vs. Boosting Stage")
+    plt.title("GBM — Train vs. Test Loss by Boosting Stage")
     plt.legend()
     plt.tight_layout()
     plt.savefig("gbm_staged_loss.png", dpi=150)
@@ -323,6 +317,7 @@ def main():
     evaluate_classifier(best_gbm, X_test, y_test)
 
     # Visualizations
+    plot_staged_loss(gbm, X_train, y_train, X_test, y_test)
     plot_feature_importance(gbm, feature_names)
     plot_confusion_matrix(gbm, X_test, y_test)
 

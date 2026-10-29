@@ -36,7 +36,7 @@ Use Cases:
     - Continuous normalizing flows (change-of-variables formula)
     - Trajectory modeling with known smooth dynamics
     - Latent dynamics discovery from time-series observations
-    - Hyperion: smooth policy dynamics, continuous state evolution
+    - Continuous-time control and smooth state evolution
 
 Advantages:
     - Continuous-time: handles missing/irregular observations natively
@@ -67,8 +67,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset
-import warnings
-warnings.filterwarnings("ignore")
 
 DEVICE = (
     "cuda" if torch.cuda.is_available()

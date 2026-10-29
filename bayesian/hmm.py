@@ -18,7 +18,7 @@ Key algorithms:
 
 Use Cases:
     - Financial regime detection (bull/bear/sideways market states)
-    - Time series segmentation (Hyperion context switching between modes)
+    - Time series segmentation (switching between operating modes)
     - Speech recognition (phoneme states)
     - Bioinformatics (gene/protein sequence analysis)
     - Activity recognition (sensor readings → walking/running/sitting)
@@ -53,8 +53,6 @@ import matplotlib.pyplot as plt
 from hmmlearn import hmm
 from sklearn.preprocessing import StandardScaler
 from scipy.stats import norm
-import warnings
-warnings.filterwarnings("ignore")
 
 
 # ─────────────────────────────────────────────

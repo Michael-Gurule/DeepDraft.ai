@@ -58,8 +58,6 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.stats import norm
 from scipy.optimize import brentq
-import warnings
-warnings.filterwarnings("ignore")
 
 
 # ─────────────────────────────────────────────

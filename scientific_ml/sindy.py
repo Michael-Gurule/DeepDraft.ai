@@ -165,26 +165,29 @@ class CustomLibrary:
         return len(self.functions)
 
 
-def combine_libraries(*libs) -> "CombinedLibrary":
+class CombinedLibrary:
+    """Horizontal concatenation of several feature libraries."""
+
+    def __init__(self, libraries):
+        self.libraries = libraries
+        self.feature_names_ = []
+
+    def fit(self, X):
+        self.feature_names_ = []
+        for lib in self.libraries:
+            lib.fit(X)
+            self.feature_names_.extend(lib.feature_names_)
+        return self
+
+    def transform(self, X):
+        return np.hstack([lib.transform(X) for lib in self.libraries])
+
+    def fit_transform(self, X):
+        return self.fit(X).transform(X)
+
+
+def combine_libraries(*libs) -> CombinedLibrary:
     """Concatenate multiple libraries horizontally."""
-
-    class CombinedLibrary:
-        def __init__(self, libraries):
-            self.libraries = libraries
-            self.feature_names_ = []
-
-        def fit(self, X):
-            for lib in self.libraries:
-                lib.fit(X)
-                self.feature_names_.extend(lib.feature_names_)
-            return self
-
-        def transform(self, X):
-            return np.hstack([lib.transform(X) for lib in self.libraries])
-
-        def fit_transform(self, X):
-            return self.fit(X).transform(X)
-
     return CombinedLibrary(list(libs))
 
 

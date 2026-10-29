@@ -21,10 +21,10 @@ Relationship to VAE:
     VAE adds a KL-divergence term to regularize the latent space and enable
     generative sampling. For anomaly detection, a plain AE is often sufficient
     and easier to threshold; VAE reconstruction probability can also serve as
-    an anomaly score (see frontier/vae.py).
+    an anomaly score (a VAE module is planned; see ROADMAP.md, Phase 4).
 
 Use Cases:
-    - Sensor fault detection (Hyperion sensor health monitoring)
+    - Sensor fault detection (industrial equipment health monitoring)
     - Network intrusion detection (traffic patterns)
     - Log anomaly detection (embedding log sequences)
     - Medical imaging (detecting abnormal scans)
@@ -60,8 +60,6 @@ from sklearn.metrics import (
     roc_auc_score, average_precision_score, confusion_matrix,
     ConfusionMatrixDisplay, precision_recall_curve
 )
-import warnings
-warnings.filterwarnings("ignore")
 
 DEVICE = (
     "cuda" if torch.cuda.is_available()
@@ -690,7 +688,11 @@ def demo_conv_ae_on_mnist() -> None:
         return
 
     transform = transforms.Compose([transforms.ToTensor()])
-    mnist = datasets.MNIST("./data", train=True, download=True, transform=transform)
+    try:
+        mnist = datasets.MNIST("./data", train=True, download=True, transform=transform)
+    except Exception as exc:  # offline, firewalled, or download failed
+        print(f"MNIST download failed ({type(exc).__name__}); skipping Conv-AE MNIST demo.")
+        return
 
     # Normal = digit 1; anomaly = digit 7
     normal_idx   = (mnist.targets == 1).nonzero(as_tuple=True)[0]

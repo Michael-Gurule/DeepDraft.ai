@@ -62,8 +62,6 @@ import torch.nn.functional as F
 from collections import deque
 import random
 import gymnasium as gym
-import warnings
-warnings.filterwarnings("ignore")
 
 DEVICE = (
     torch.device("cuda") if torch.cuda.is_available()

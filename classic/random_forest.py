@@ -54,8 +54,6 @@ from sklearn.metrics import (
 from sklearn.inspection import permutation_importance
 from sklearn.datasets import make_classification, make_regression
 from scipy.stats import randint
-import warnings
-warnings.filterwarnings("ignore")
 
 
 # ─────────────────────────────────────────────
@@ -275,7 +273,7 @@ def plot_permutation_importance(model, X_test: np.ndarray, y_test: np.ndarray,
     plt.boxplot(
         result.importances[sorted_idx].T,
         vert=True,
-        labels=[feature_names[i] for i in sorted_idx],
+        tick_labels=[feature_names[i] for i in sorted_idx],
     )
     plt.axhline(0, color="red", linestyle="--", linewidth=1)
     plt.xlabel("Feature")

@@ -61,8 +61,6 @@ import matplotlib.pyplot as plt
 from scipy.stats import norm
 from scipy.integrate import quad
 from scipy.optimize import minimize, differential_evolution
-import warnings
-warnings.filterwarnings("ignore")
 
 # ─────────────────────────────────────────────
 # CONFIG
@@ -94,23 +92,28 @@ def heston_char_fn(
     xi: float, rho: float, r: float, q: float, T: float,
 ) -> complex:
     """
-    Heston characteristic function E[e^{i phi ln S_T}].
-    Uses Albrecher et al. (2007) formula to avoid branch-cut issues.
+    Heston characteristic function E[e^{i phi ln S_T}] under the risk-neutral measure.
+
+    Uses the "little Heston trap" formulation (Albrecher et al. 2007), which
+    takes the root with exp(-d T) so the complex logarithm stays on its
+    principal branch for long maturities:
+
+        beta = kappa - rho * xi * i * phi
+        d    = sqrt(beta^2 + xi^2 * (i * phi + phi^2))
+        g    = (beta - d) / (beta + d)
+        C    = (r - q) i phi T + (kappa theta / xi^2) [(beta - d) T - 2 ln((1 - g e^{-dT}) / (1 - g))]
+        D    = ((beta - d) / xi^2) (1 - e^{-dT}) / (1 - g e^{-dT})
     """
     i = 1j
-    a = kappa * theta
-    u = -0.5
-    b = kappa - rho * xi * phi * i
+    beta = kappa - rho * xi * i * phi
+    d = np.sqrt(beta**2 + xi**2 * (i * phi + phi**2))
+    g = (beta - d) / (beta + d)
 
-    d = np.sqrt((rho * xi * phi * i - b)**2 - xi**2 * (2 * u * phi * i - phi**2))
-    g = (b - rho * xi * phi * i + d) / (b - rho * xi * phi * i - d)
-
-    exp_dT  = np.exp(d * T)
-    C = (r - q) * phi * i * T + (a / xi**2) * (
-        (b - rho * xi * phi * i + d) * T
-        - 2 * np.log((1 - g * exp_dT) / (1 - g))
+    exp_neg_dT = np.exp(-d * T)
+    C = (r - q) * i * phi * T + (kappa * theta / xi**2) * (
+        (beta - d) * T - 2 * np.log((1 - g * exp_neg_dT) / (1 - g))
     )
-    D = ((b - rho * xi * phi * i + d) / xi**2) * (1 - exp_dT) / (1 - g * exp_dT)
+    D = ((beta - d) / xi**2) * (1 - exp_neg_dT) / (1 - g * exp_neg_dT)
     return np.exp(C + D * V0 + i * phi * np.log(S0))
 
 

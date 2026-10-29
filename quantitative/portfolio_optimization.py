@@ -29,7 +29,7 @@ Sharpe Ratio:
 
 Use Cases:
     - Asset allocation across equities, bonds, alternatives
-    - Hyperion: budget allocation across marketing channels
+    - Budget allocation across marketing channels or projects
     - Portfolio rebalancing given updated expected returns
     - Combine with Black-Litterman views for more stable allocations
 
@@ -55,8 +55,6 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.optimize import minimize
 from sklearn.covariance import LedoitWolf
-import warnings
-warnings.filterwarnings("ignore")
 
 
 # ─────────────────────────────────────────────
@@ -399,7 +397,10 @@ def plot_portfolio_weights(weights_dict: dict) -> None:
 def plot_risk_contributions(w: np.ndarray, cov: np.ndarray,
                              asset_names: list = None) -> None:
     """
-    Pie chart of each asset's marginal risk contribution to portfolio variance.
+    Bar chart of each asset's share of portfolio variance.
+
+    Contributions can be negative when an asset is negatively correlated with
+    the rest of the portfolio (it hedges risk), so a pie chart cannot show them.
     """
     mrc     = cov @ w
     trc     = w * mrc
@@ -408,8 +409,11 @@ def plot_risk_contributions(w: np.ndarray, cov: np.ndarray,
     if asset_names is None:
         asset_names = [f"A{i}" for i in range(len(w))]
 
-    plt.figure(figsize=(7, 7))
-    plt.pie(trc_pct, labels=asset_names, autopct="%1.1f%%", startangle=90)
+    plt.figure(figsize=(8, 4))
+    colors = ["tomato" if v < 0 else "steelblue" for v in trc_pct]
+    plt.bar(asset_names, trc_pct, color=colors, edgecolor="k")
+    plt.axhline(0, color="black", linewidth=0.8)
+    plt.ylabel("Share of portfolio variance (%)")
     plt.title("Portfolio — Risk Contributions")
     plt.tight_layout()
     plt.savefig("portfolio_risk_contrib.png", dpi=150)

@@ -59,15 +59,13 @@ from sklearn.ensemble import (
     BaggingClassifier,
 )
 from sklearn.svm import SVC, SVR
-from sklearn.neighbors import KNeighborsClassifier
+from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import (
     accuracy_score, roc_auc_score, mean_squared_error, r2_score,
     classification_report,
 )
-import warnings
-warnings.filterwarnings("ignore")
 
 # ─────────────────────────────────────────────
 # CONFIG
@@ -135,7 +133,7 @@ def get_base_regressors(seed: int = 42) -> list[tuple]:
         ("rf",  RandomForestRegressor(n_estimators=100, random_state=seed, n_jobs=-1)),
         ("gbm", GradientBoostingRegressor(n_estimators=100, max_depth=3, random_state=seed)),
         ("svr", make_pipeline(StandardScaler(), SVR(kernel="rbf"))),
-        ("knn", make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=15))),
+        ("knn", make_pipeline(StandardScaler(), KNeighborsRegressor(n_neighbors=15))),
     ]
 
 
@@ -231,7 +229,8 @@ def evaluate_classifiers(
         cv_auc = cross_val_score(model, X_train, y_train, cv=cv,
                                   scoring="roc_auc", n_jobs=-1).mean()
 
-        print(f"Acc={acc:.4f}  AUC={auc:.4f if auc else 'N/A'}  CV-AUC={cv_auc:.4f}")
+        auc_str = f"{auc:.4f}" if auc is not None else "N/A"
+        print(f"Acc={acc:.4f}  AUC={auc_str}  CV-AUC={cv_auc:.4f}")
         results.append({
             "model": name, "accuracy": acc,
             "test_auc": auc or 0.0, "cv_auc": cv_auc,
@@ -282,7 +281,12 @@ def compare_meta_learners(X_train, y_train, X_test, y_test,
         stk = StackingClassifier(estimators=base_estimators, final_estimator=meta,
                                   cv=cv, n_jobs=-1)
         stk.fit(X_train, y_train)
-        y_proba = stk.predict_proba(X_test)[:, 1]
+        # RidgeClassifier has no predict_proba; ROC-AUC only needs a ranking
+        # score, so fall back to decision_function.
+        if hasattr(stk, "predict_proba"):
+            y_proba = stk.predict_proba(X_test)[:, 1]
+        else:
+            y_proba = stk.decision_function(X_test)
         auc = roc_auc_score(y_test, y_proba)
         print(f"  Meta={meta_name:15s} | AUC={auc:.4f}")
         results.append({"meta_learner": meta_name, "auc": auc})

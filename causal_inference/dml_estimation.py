@@ -66,8 +66,6 @@ from sklearn.model_selection import KFold
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import r2_score
 from scipy import stats
-import warnings
-warnings.filterwarnings("ignore")
 
 
 # ─────────────────────────────────────────────

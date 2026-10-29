@@ -36,7 +36,7 @@ Use Cases:
     - Inverse problems: identify diffusivity/viscosity from sensor data
     - Sparse-data regression constrained by known physics
     - Surrogate models for parametric PDE families
-    - Hyperion sensor dynamics: constrain trajectory estimates with kinematic PDEs
+    - Trajectory estimation constrained by kinematic equations
 
 Advantages:
     - Mesh-free: works on irregular domains
@@ -69,8 +69,6 @@ import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 from torch import autograd
-import warnings
-warnings.filterwarnings("ignore")
 
 DEVICE = (
     "cuda" if torch.cuda.is_available()

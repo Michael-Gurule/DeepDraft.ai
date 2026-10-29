@@ -51,8 +51,6 @@ from sklearn.metrics import (
 )
 from sklearn.datasets import make_classification, make_regression
 from sklearn.inspection import permutation_importance
-import warnings
-warnings.filterwarnings("ignore")
 
 
 # ─────────────────────────────────────────────

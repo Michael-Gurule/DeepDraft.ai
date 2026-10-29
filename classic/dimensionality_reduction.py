@@ -39,7 +39,7 @@ Fine-tuning recommendations:
   t-SNE:
     - perplexity (#Placeholder: 30): effective neighbors (5–50); lower = local, higher = global
     - learning_rate (#Placeholder: "auto"): use "auto" in sklearn; or 10–1000
-    - n_iter (#Placeholder: 1000): more = better convergence
+    - max_iter (#Placeholder: 1000): more = better convergence
   UMAP:
     - n_neighbors (#Placeholder: 15): local vs global balance (5–200)
     - min_dist (#Placeholder: 0.1): tightness of embedding (0.0–0.99)
@@ -69,8 +69,6 @@ from sklearn.manifold import TSNE
 from sklearn.pipeline import make_pipeline
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import cross_val_score
-import warnings
-warnings.filterwarnings("ignore")
 
 try:
     import umap
@@ -87,7 +85,7 @@ CONFIG = {
     "ica_n_components":     10,      # # Placeholder:
     "lda_n_components":     None,    # # Placeholder: None = max (n_classes - 1)
     "tsne_perplexity":      30,      # # Placeholder:
-    "tsne_n_iter":          1000,    # # Placeholder:
+    "tsne_max_iter":        1000,    # # Placeholder:
     "tsne_n_components":    2,       # # Placeholder:
     "umap_n_neighbors":     15,      # # Placeholder:
     "umap_min_dist":        0.1,     # # Placeholder:
@@ -261,7 +259,7 @@ def fit_tsne(X: np.ndarray, cfg: dict) -> np.ndarray:
         n_components=cfg["tsne_n_components"],
         perplexity=cfg["tsne_perplexity"],
         learning_rate="auto",
-        n_iter=cfg["tsne_n_iter"],
+        max_iter=cfg["tsne_max_iter"],
         random_state=cfg["seed"],
         n_jobs=-1,
     )
@@ -336,7 +334,12 @@ def reconstruction_error(
         else:
             raise ValueError(method)
         X_red = model.fit_transform(X_scaled)
-        X_rec = model.inverse_transform(X_red)
+        if method == "factor":
+            # FactorAnalysis has no inverse_transform: reconstruct from the
+            # loading matrix W (components_) and the mean, X_rec = Z W + mu.
+            X_rec = X_red @ model.components_ + model.mean_
+        else:
+            X_rec = model.inverse_transform(X_red)
         err = np.mean((X_scaled - X_rec) ** 2)
         errors.append(err)
 
@@ -365,7 +368,7 @@ def plot_2d_embeddings(embeddings: dict, y: np.ndarray, title: str = ""):
         axes = [axes]
     fig.suptitle(f"Dimensionality Reduction — {title}", fontsize=12)
 
-    cmap = plt.cm.get_cmap("tab10", len(np.unique(y)))
+    cmap = plt.get_cmap("tab10", len(np.unique(y)))
     for ax, name in zip(axes, methods):
         Z = embeddings[name]
         sc = ax.scatter(Z[:, 0], Z[:, 1], c=y, cmap=cmap, s=10, alpha=0.7)

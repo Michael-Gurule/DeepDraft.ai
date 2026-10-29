@@ -27,7 +27,7 @@ Use Cases:
     - Short-term economic forecasting
     - Demand planning and inventory management
     - Energy consumption forecasting
-    - Marketing budget time series (Hyperion allocation signals)
+    - Marketing spend and channel performance time series
     - Baseline model for comparing against ML forecasters
 
 Advantages:
@@ -62,8 +62,6 @@ from statsmodels.tsa.stattools import adfuller, acf, pacf
 from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
 from statsmodels.stats.diagnostic import acorr_ljungbox
 from sklearn.metrics import mean_squared_error, mean_absolute_error
-import warnings
-warnings.filterwarnings("ignore")
 
 
 # ─────────────────────────────────────────────

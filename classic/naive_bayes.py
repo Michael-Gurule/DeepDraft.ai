@@ -59,8 +59,6 @@ from sklearn.metrics import (
 )
 from sklearn.pipeline import Pipeline
 from sklearn.datasets import make_classification, fetch_20newsgroups
-import warnings
-warnings.filterwarnings("ignore")
 
 
 # ─────────────────────────────────────────────
@@ -108,10 +106,51 @@ def load_text_data(categories: list | None = None):
     if categories is None:
         categories = ["sci.space", "rec.sport.hockey", "talk.politics.misc", "comp.graphics"]
 
-    train = fetch_20newsgroups(subset="train", categories=categories, remove=("headers",))
-    test  = fetch_20newsgroups(subset="test",  categories=categories, remove=("headers",))
+    try:
+        train = fetch_20newsgroups(subset="train", categories=categories, remove=("headers",))
+        test  = fetch_20newsgroups(subset="test",  categories=categories, remove=("headers",))
+    except Exception as exc:  # offline, firewalled, or download failed
+        print(f"20 Newsgroups download failed ({type(exc).__name__}); "
+              "using a small synthetic text corpus instead.")
+        return make_synthetic_text_data(categories)
 
     return train.data, test.data, train.target, test.target
+
+
+def make_synthetic_text_data(categories: list, n_train: int = 150, n_test: int = 50,
+                             doc_len: int = 40, seed: int = 42):
+    """
+    Offline stand-in for 20 Newsgroups: each category draws most words from its
+    own topic vocabulary and the rest from shared filler words.
+
+    Labels follow the alphabetical order of the category names, matching how
+    fetch_20newsgroups assigns target indices.
+    """
+    topic_words = {
+        "sci.space":          "orbit rocket launch nasa planet satellite shuttle moon mars telescope",
+        "rec.sport.hockey":   "goal puck season team playoff coach ice score league player",
+        "talk.politics.misc": "government vote policy tax law president senate election debate rights",
+        "comp.graphics":      "image render pixel polygon shader texture graphics format display algorithm",
+    }
+    filler = "the a of and to in is that it for on with as this was are be".split()
+    rng = np.random.default_rng(seed)
+    ordered = sorted(categories)
+
+    def _docs(n):
+        texts, labels = [], []
+        for label, cat in enumerate(ordered):
+            vocab = topic_words.get(cat, cat.replace(".", " ")).split()
+            for _ in range(n):
+                n_topic = int(doc_len * 0.4)
+                words = list(rng.choice(vocab, n_topic)) + list(rng.choice(filler, doc_len - n_topic))
+                rng.shuffle(words)
+                texts.append(" ".join(words))
+                labels.append(label)
+        return texts, np.array(labels)
+
+    train_texts, train_labels = _docs(n_train)
+    test_texts, test_labels = _docs(n_test)
+    return train_texts, test_texts, train_labels, test_labels
 
 
 def load_binary_data(n_samples: int = 600, n_features: int = 10):

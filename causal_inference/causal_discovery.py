@@ -68,8 +68,6 @@ import networkx as nx
 from scipy import stats
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LinearRegression
-import warnings
-warnings.filterwarnings("ignore")
 
 
 # ─────────────────────────────────────────────
@@ -192,7 +190,7 @@ class PCAlgorithm:
     Implementation:
         Phase 1 (skeleton): remove edges via CI tests with increasing |Z|
         Phase 2 (v-structures): orient X-Z-Y as X→Z←Y if X⊬Z and Y⊬Z
-                                  but X⊥Y | Z\{...} for some set not containing Z
+                                  but X⊥Y | Z\\{...} for some set not containing Z
         Phase 3 (Meek rules): propagate orientations to avoid new v-structures
                                or directed cycles
 

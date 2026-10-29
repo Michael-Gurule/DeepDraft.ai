@@ -54,8 +54,6 @@ from sklearn.metrics import (
     ConfusionMatrixDisplay, mean_squared_error, r2_score
 )
 from sklearn.datasets import make_classification, make_regression
-import warnings
-warnings.filterwarnings("ignore")
 
 
 # ─────────────────────────────────────────────

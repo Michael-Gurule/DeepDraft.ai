@@ -56,8 +56,6 @@ from sklearn.metrics import (
     accuracy_score, roc_auc_score, classification_report,
     mean_squared_error, r2_score,
 )
-import warnings
-warnings.filterwarnings("ignore")
 
 try:
     import lightgbm as lgb

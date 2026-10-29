@@ -26,7 +26,7 @@ Resampling Strategies:
     - Residual: hybrid that keeps high-weight particles deterministically
 
 Use Cases:
-    - Multi-target tracking (Hyperion UAV/sensor localization)
+    - Multi-target tracking (radar, drone, and sensor localization)
     - Robot localization (Monte Carlo Localization)
     - Financial state estimation (stochastic volatility models)
     - GPS/IMU fusion under non-linear dynamics
@@ -57,8 +57,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from dataclasses import dataclass, field
 from typing import Callable, Optional
-import warnings
-warnings.filterwarnings("ignore")
 
 
 # ─────────────────────────────────────────────
@@ -89,7 +87,7 @@ class StateSpaceModel:
             position  += velocity * dt + process_noise
             velocity  += process_noise (random walk)
 
-        Replace with your system dynamics (e.g., from Hyperion's UAV motion model).
+        Replace with your system dynamics (e.g., a vehicle or robot motion model).
         """
         x_next = x.copy()
         x_next[:, 0] += x_next[:, 1] * dt  # pos += vel

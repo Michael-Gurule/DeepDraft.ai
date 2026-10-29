@@ -27,7 +27,7 @@ Use Cases:
     - Hyperparameter tuning (neural network lr, batch_size, dropout)
     - Chemical/material discovery
     - A/B test parameter selection
-    - Marketing budget allocation across channels (Hyperion use case)
+    - Marketing budget allocation across channels
     - Engineering design optimization (simulation parameters)
     - Drug dosage optimization
 
@@ -58,8 +58,6 @@ from scipy.stats import norm
 from scipy.optimize import minimize
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import Matern, WhiteKernel, ConstantKernel as C
-import warnings
-warnings.filterwarnings("ignore")
 
 
 # ─────────────────────────────────────────────

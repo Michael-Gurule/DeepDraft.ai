@@ -59,15 +59,12 @@ References:
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import warnings
-warnings.filterwarnings("ignore")
 
 from statsmodels.tsa.holtwinters import (
     SimpleExpSmoothing,
     ExponentialSmoothing,
     Holt,
 )
-from statsmodels.tsa.statespace.exponential_smoothing import ExponentialSmoothing as ETSModel
 from statsmodels.tsa.forecasting.theta import ThetaModel
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 
@@ -241,9 +238,10 @@ def fit_theta(y_train: pd.Series, seasonal_periods: int = 12, theta: float = 2.0
     """
     try:
         model = ThetaModel(y_train, period=seasonal_periods, deseasonalize=True)
-        fit = model.fit(theta=theta)
+        fit = model.fit()
+        # statsmodels applies theta at forecast time, not at fit time.
         print(f"Theta: θ={theta}")
-        return {"model": model, "fit": fit, "name": f"Theta(θ={theta})"}
+        return {"model": model, "fit": fit, "name": f"Theta(θ={theta})", "theta": theta}
     except Exception as e:
         print(f"Theta model failed: {e}")
         return fit_ses(y_train)
@@ -255,6 +253,8 @@ def fit_theta(y_train: pd.Series, seasonal_periods: int = 12, theta: float = 2.0
 
 def forecast(result: dict, h: int) -> pd.Series:
     """Generate h-step ahead point forecast."""
+    if "theta" in result:
+        return result["fit"].forecast(h, theta=result["theta"])
     try:
         return result["fit"].forecast(h)
     except Exception:
@@ -262,23 +262,31 @@ def forecast(result: dict, h: int) -> pd.Series:
                                      end=len(result["fit"].fittedvalues) + h - 1)
 
 
-def prediction_interval(result: dict, h: int, alpha: float = 0.05) -> pd.DataFrame:
+def prediction_interval(result: dict, h: int, alpha: float = 0.05,
+                        n_sims: int = 1000, seed: int = 42) -> pd.DataFrame:
     """
-    Returns forecast with (1-alpha) prediction intervals.
-    Supported for ExponentialSmoothing fits with simulate_insample.
+    Returns the point forecast with (1-alpha) prediction intervals.
+
+    Holt-Winters fits (SES, Holt, ExponentialSmoothing) have no analytic
+    interval method in statsmodels, so the interval comes from simulating
+    n_sims future paths with resampled additive errors and taking quantiles.
+    Theta fits provide analytic intervals via prediction_intervals().
     """
-    try:
-        pred = result["fit"].get_prediction(start=len(result["fit"].fittedvalues),
-                                             end=len(result["fit"].fittedvalues) + h - 1)
-        ci = pred.conf_int(alpha=alpha)
-        return pd.DataFrame({
-            "forecast": pred.predicted_mean,
-            "lower":    ci.iloc[:, 0],
-            "upper":    ci.iloc[:, 1],
-        })
-    except Exception:
-        fc = forecast(result, h)
-        return pd.DataFrame({"forecast": fc, "lower": fc, "upper": fc})
+    fit = result["fit"]
+    fc = forecast(result, h)
+
+    if hasattr(fit, "prediction_intervals"):          # ThetaModelResults
+        pi = fit.prediction_intervals(h, theta=result["theta"], alpha=alpha)
+        return pd.DataFrame({"forecast": fc, "lower": pi.iloc[:, 0], "upper": pi.iloc[:, 1]})
+
+    sims = fit.simulate(h, anchor="end", repetitions=n_sims, error="add",
+                        random_state=seed)
+    sims = pd.DataFrame(np.asarray(sims).reshape(h, -1), index=fc.index)
+    return pd.DataFrame({
+        "forecast": fc,
+        "lower":    sims.quantile(alpha / 2, axis=1),
+        "upper":    sims.quantile(1 - alpha / 2, axis=1),
+    })
 
 
 def evaluate(result: dict, y_test: pd.Series) -> dict:

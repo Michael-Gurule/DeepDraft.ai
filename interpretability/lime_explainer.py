@@ -65,14 +65,12 @@ Fine-Tuning Recommendations:
 
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.datasets import load_breast_cancer, fetch_california_housing
+from sklearn.datasets import load_breast_cancer, load_diabetes, fetch_california_housing
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestRegressor
 from sklearn.linear_model import Ridge, Lasso, LassoCV
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import r2_score
-import warnings
-warnings.filterwarnings("ignore")
 
 
 # ─────────────────────────────────────────────
@@ -91,8 +89,13 @@ def load_classification_data() -> tuple:
 
 
 def load_regression_data() -> tuple:
-    """Load California housing dataset for regression."""
-    data = fetch_california_housing()
+    """Load California housing for regression (bundled diabetes data when offline)."""
+    try:
+        data = fetch_california_housing()
+    except Exception as exc:  # offline, firewalled, or download failed
+        print(f"California housing download failed ({type(exc).__name__}); "
+              "falling back to the bundled diabetes dataset.")
+        data = load_diabetes()
     scaler = StandardScaler()
     X = scaler.fit_transform(data.data)
     X_train, X_test, y_train, y_test = train_test_split(

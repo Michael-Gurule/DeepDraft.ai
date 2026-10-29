@@ -39,7 +39,7 @@ Use Cases:
     - Option pricing (path-dependent: Asian, barrier, American via LSM)
     - Stress testing (tail scenarios)
     - Project NPV distributions under uncertainty
-    - Hyperion: scenario analysis for agent reward distributions
+    - Scenario analysis for any simulated outcome distribution
 
 Fine-Tuning Recommendations:
     - n_simulations: 10k for rough estimates, 100k for production VaR.
@@ -55,8 +55,6 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from scipy import stats
-import warnings
-warnings.filterwarnings("ignore")
 
 
 # ─────────────────────────────────────────────

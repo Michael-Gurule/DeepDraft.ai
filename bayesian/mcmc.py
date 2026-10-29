@@ -55,8 +55,6 @@ References:
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import multivariate_normal, norm, gamma as sp_gamma
-import warnings
-warnings.filterwarnings("ignore")
 
 # ─────────────────────────────────────────────
 # CONFIG

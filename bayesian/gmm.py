@@ -30,7 +30,7 @@ Use Cases:
     - Density estimation and generative modeling
     - Soft clustering (probabilistic membership)
     - Anomaly detection (low likelihood = anomaly)
-    - Market regime identification (Hyperion multi-modal signal prior)
+    - Market regime identification (multi-modal return distributions)
     - EM initialization for HMM (seed state means)
     - Speaker recognition, image segmentation
 
@@ -62,8 +62,6 @@ from sklearn.metrics import (
     roc_auc_score, average_precision_score, silhouette_score,
     adjusted_rand_score
 )
-import warnings
-warnings.filterwarnings("ignore")
 
 
 # ─────────────────────────────────────────────

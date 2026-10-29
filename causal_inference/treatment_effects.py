@@ -72,8 +72,6 @@ from sklearn.ensemble import (
 from sklearn.linear_model import RidgeCV, LogisticRegressionCV
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-import warnings
-warnings.filterwarnings("ignore")
 
 
 # ─────────────────────────────────────────────
@@ -374,7 +372,7 @@ def compute_qini_curve(
 
     fractions = np.arange(1, n + 1) / n
     qini = np.array(uplift)
-    auuc = np.trapz(qini, fractions) - np.trapz(np.linspace(qini[0], qini[-1], n), fractions)
+    auuc = np.trapezoid(qini, fractions) - np.trapezoid(np.linspace(qini[0], qini[-1], n), fractions)
     return fractions, qini, auuc
 
 

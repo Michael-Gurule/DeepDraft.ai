@@ -62,8 +62,6 @@ from sklearn.metrics import (
     roc_auc_score, average_precision_score, confusion_matrix,
     ConfusionMatrixDisplay
 )
-import warnings
-warnings.filterwarnings("ignore")
 
 
 # ─────────────────────────────────────────────

@@ -39,7 +39,7 @@ Use Cases:
     - Option pricing (local vol surface)
     - Dynamic portfolio optimization (time-varying covariance)
     - Trading signal: enter/exit based on vol regime
-    - Hyperion: volatility-adjusted position sizing
+    - Volatility-adjusted position sizing
 
 Fine-Tuning Recommendations:
     - GARCH(1,1) is sufficient for most financial series. Higher p,q rarely help.
@@ -57,8 +57,6 @@ from arch import arch_model
 from arch.__future__ import reindexing
 from scipy import stats
 from statsmodels.stats.diagnostic import acorr_ljungbox
-import warnings
-warnings.filterwarnings("ignore")
 
 
 # ─────────────────────────────────────────────

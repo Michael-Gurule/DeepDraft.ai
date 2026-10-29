@@ -55,8 +55,6 @@ from sklearn.metrics import (
 )
 from sklearn.pipeline import Pipeline
 from sklearn.datasets import make_classification, make_regression
-import warnings
-warnings.filterwarnings("ignore")
 
 
 # ─────────────────────────────────────────────

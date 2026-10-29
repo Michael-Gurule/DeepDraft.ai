@@ -8,7 +8,7 @@ Core idea:
     For a prediction f(x), the SHAP value φ_i of feature i is the average
     marginal contribution of feature i across all possible feature coalitions:
 
-    φ_i = Σ_{S ⊆ F\{i}} [|S|!(|F|-|S|-1)! / |F|!] * [f(S∪{i}) - f(S)]
+    φ_i = Σ_{S ⊆ F\\{i}} [|S|!(|F|-|S|-1)! / |F|!] * [f(S∪{i}) - f(S)]
 
     where F is the full feature set and S ranges over all subsets not containing i.
     This is the unique attribution satisfying: efficiency, symmetry, dummy, and additivity.
@@ -62,13 +62,11 @@ Fine-Tuning Recommendations:
 
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.datasets import load_breast_cancer, fetch_california_housing
+from sklearn.datasets import load_breast_cancer, load_diabetes, fetch_california_housing
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.inspection import permutation_importance
-import warnings
-warnings.filterwarnings("ignore")
 
 
 # ─────────────────────────────────────────────
@@ -96,10 +94,18 @@ def load_regression_data() -> tuple[np.ndarray, np.ndarray, list[str]]:
     """
     Load California housing dataset for regression.
 
+    Falls back to scikit-learn's bundled diabetes dataset when the download
+    is unavailable (offline machines, CI runners).
+
     Returns:
         X_train, X_test, y_train, y_test, feature_names
     """
-    data = fetch_california_housing()
+    try:
+        data = fetch_california_housing()
+    except Exception as exc:  # offline, firewalled, or download failed
+        print(f"California housing download failed ({type(exc).__name__}); "
+              "falling back to the bundled diabetes dataset.")
+        data = load_diabetes()
     X_train, X_test, y_train, y_test = train_test_split(
         data.data, data.target, test_size=0.2, random_state=42
     )
@@ -318,7 +324,7 @@ def plot_beeswarm(
         sv_feat   = sv_display[:, feat_idx]
         feat_vals = X_display[:, feat_idx]
         # Normalize feature values to [0,1] for color
-        fv_norm = (feat_vals - feat_vals.min()) / (feat_vals.ptp() + 1e-10)
+        fv_norm = (feat_vals - feat_vals.min()) / (np.ptp(feat_vals) + 1e-10)
         colors  = cmap(fv_norm)
 
         # Jitter y-axis to spread points

@@ -22,7 +22,7 @@ Why Prophet vs ARIMA:
     - Works with daily/weekly/yearly data; ARIMA excels at hourly/stationary data
 
 Use Cases:
-    - Marketing channel attribution forecasting (Hyperion allocation)
+    - Marketing channel performance forecasting
     - Sales demand forecasting with holiday effects
     - Web traffic forecasting
     - Energy/utility consumption with seasonal patterns
@@ -53,8 +53,6 @@ from prophet import Prophet
 from prophet.diagnostics import cross_validation, performance_metrics
 from prophet.plot import plot_plotly, plot_components_plotly
 from sklearn.metrics import mean_squared_error, mean_absolute_error
-import warnings
-warnings.filterwarnings("ignore")
 
 
 # ─────────────────────────────────────────────

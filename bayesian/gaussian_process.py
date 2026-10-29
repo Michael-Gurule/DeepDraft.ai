@@ -16,7 +16,7 @@ Mathematical formulation:
         Σ*        = K(X*,X*) - K(X*,X) [K(X,X) + σ²I]⁻¹ K(X,X*)
 
     The posterior uncertainty grows away from observed data — key for
-    uncertainty-aware predictions (Hyperion sensor fusion, allocation).
+    uncertainty-aware predictions (sensor fusion, active learning).
 
 Kernel Choices:
     RBF (Squared Exponential): smooth functions, length_scale controls correlation range.
@@ -64,8 +64,6 @@ from sklearn.gaussian_process.kernels import (
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import cross_val_score, KFold
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score, accuracy_score, roc_auc_score
-import warnings
-warnings.filterwarnings("ignore")
 
 
 # ─────────────────────────────────────────────

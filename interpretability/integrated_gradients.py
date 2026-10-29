@@ -61,6 +61,8 @@ Fine-Tuning Recommendations:
        apply threshold to show only top-k% attributions.
 """
 
+from collections.abc import Callable
+
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
@@ -71,8 +73,6 @@ from torch.utils.data import DataLoader, TensorDataset
 from sklearn.datasets import load_breast_cancer
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-import warnings
-warnings.filterwarnings("ignore")
 
 # ─────────────────────────────────────────────
 # DEVICE
@@ -282,7 +282,7 @@ class IntegratedGradients:
     def attribute(
         self,
         x: torch.Tensor,
-        target_fn: callable | None = None,
+        target_fn: Callable | None = None,
     ) -> tuple[torch.Tensor, float]:
         """
         Compute Integrated Gradients for input x.

@@ -54,8 +54,6 @@ from sklearn.metrics import (
 )
 from sklearn.pipeline import Pipeline
 from sklearn.datasets import make_blobs, make_moons
-import warnings
-warnings.filterwarnings("ignore")
 
 
 # ─────────────────────────────────────────────

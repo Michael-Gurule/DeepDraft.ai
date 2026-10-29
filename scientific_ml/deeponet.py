@@ -38,7 +38,7 @@ Use Cases:
     - Surrogate for parametric PDEs (generalize over IC/BC variations)
     - Weather forecasting: operator from initial conditions → future state
     - Material design: map loading conditions → stress fields
-    - Hyperion: operator from sensor readings → state estimate across time
+    - State estimation: operator from sensor readings → state across time
     - Drug discovery: map molecular structure → binding affinity field
 
 Fine-Tuning Recommendations:
@@ -59,8 +59,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset
-import warnings
-warnings.filterwarnings("ignore")
 
 DEVICE = (
     "cuda" if torch.cuda.is_available()
@@ -111,10 +109,10 @@ def generate_antiderivative_data(n_functions: int = 2000,
         u       = u.astype(np.float32)
         u_samples[i] = u
 
-        # Antiderivative via cumulative trapz
+        # Antiderivative via the trapezoidal rule
         for j, y in enumerate(y_queries):
             idx = int(y * (m_sensors - 1))
-            Gu_samples[i, j] = np.trapz(u[:idx+1],
+            Gu_samples[i, j] = np.trapezoid(u[:idx+1],
                                           x_sensors[:idx+1]) if idx > 0 else 0.0
 
     print(f"  Input functions: {u_samples.shape}  |  "

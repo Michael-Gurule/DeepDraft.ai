@@ -70,8 +70,6 @@ from sklearn.metrics import (
 )
 from sklearn.datasets import make_classification, make_regression
 from scipy.stats import uniform, randint
-import warnings
-warnings.filterwarnings("ignore")
 
 
 # ─────────────────────────────────────────────
@@ -155,7 +153,6 @@ CLASSIFIER_CONFIG = {
     "eval_metric":       "auc",
     "tree_method":       "hist",       # 'hist' (fastest), 'exact', 'approx'; use 'gpu_hist' with GPU
     "device":            "cpu",        # Placeholder: set to 'cuda' for GPU acceleration
-    "use_label_encoder": False,
     "verbosity":         0,
     "random_state":      42,
 }
@@ -209,15 +206,15 @@ def train_with_early_stopping(
     Returns:
         fitted XGBoost model
     """
+    # Since xgboost 2.0, early_stopping_rounds is a constructor argument.
     if task == "classification":
-        model = xgb.XGBClassifier(**CLASSIFIER_CONFIG)
+        model = xgb.XGBClassifier(**CLASSIFIER_CONFIG, early_stopping_rounds=early_stopping_rounds)
     else:
-        model = xgb.XGBRegressor(**REGRESSOR_CONFIG)
+        model = xgb.XGBRegressor(**REGRESSOR_CONFIG, early_stopping_rounds=early_stopping_rounds)
 
     model.fit(
         X_train, y_train,
         eval_set=[(X_val, y_val)],
-        early_stopping_rounds=early_stopping_rounds,
         verbose=False,
     )
 
