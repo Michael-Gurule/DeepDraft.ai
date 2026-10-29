@@ -6,6 +6,7 @@ import warnings
 from typing import Callable
 
 import numpy as np
+from scipy import stats
 
 
 def bootstrap_ci(metric: Callable[[np.ndarray, np.ndarray], float],
@@ -45,6 +46,25 @@ def bootstrap_ci(metric: Callable[[np.ndarray, np.ndarray], float],
         raise ValueError("metric was undefined on every bootstrap resample")
     lower, upper = np.percentile(stats, [100 * alpha / 2, 100 * (1 - alpha / 2)])
     return point, float(lower), float(upper)
+
+
+def mean_confidence_interval(values, confidence: float = 0.95) -> tuple[float, float, float]:
+    """Mean and Student-t confidence interval of independent values.
+
+    Use it for results across random seeds, where each seed is one
+    independent run and there are too few runs to bootstrap. With a single
+    value the interval is undefined and returned as NaN.
+
+    Returns:
+        (mean, lower, upper)
+    """
+    values = np.asarray(values, dtype=float)
+    n = len(values)
+    mean = float(values.mean())
+    if n < 2:
+        return mean, float("nan"), float("nan")
+    half = stats.t.ppf((1 + confidence) / 2, df=n - 1) * values.std(ddof=1) / np.sqrt(n)
+    return mean, mean - float(half), mean + float(half)
 
 
 def mase(y_true, y_pred, y_train, m: int = 1) -> float:

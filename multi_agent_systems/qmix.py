@@ -68,7 +68,8 @@ import torch.optim as optim
 from collections import deque
 import random
 
-from deepdraft.core import fast_or, save_figure
+from deepdraft.core import fast_or, save_figure, seed_everything
+from deepdraft.evaluation import mean_confidence_interval
 
 # ─────────────────────────────────────────────
 # DEVICE
@@ -154,7 +155,7 @@ class CooperativeNavEnv:
     def step(
         self,
         actions: list[int],
-    ) -> tuple[list[np.ndarray], float, bool, np.ndarray]:
+    ) -> tuple[list[np.ndarray], float, bool, bool, np.ndarray]:
         """
         Apply one action per agent.
 
@@ -162,10 +163,11 @@ class CooperativeNavEnv:
             actions: list of action indices (one per agent)
 
         Returns:
-            obs:    new per-agent observations
-            reward: shared team reward (negative: min distance to each landmark)
-            done:   True if max_steps reached
-            state:  new global state
+            obs:        new per-agent observations
+            reward:     shared team reward (negative: min distance to each landmark)
+            terminated: True at a true end state; this task has none, so always False
+            truncated:  True when the max_steps time limit cuts the episode off
+            state:      new global state
         """
         speed = 0.1
         deltas = {0: [0, 0], 1: [0, speed], 2: [0, -speed], 3: [-speed, 0], 4: [speed, 0]}
@@ -181,8 +183,9 @@ class CooperativeNavEnv:
             reward -= dists.min()
 
         self._step += 1
-        done = self._step >= self.max_steps
-        return self._get_obs(), reward, done, self._get_state()
+        terminated = False
+        truncated = self._step >= self.max_steps
+        return self._get_obs(), reward, terminated, truncated, self._get_state()
 
 
 # ─────────────────────────────────────────────
@@ -333,7 +336,7 @@ class EpisodeReplayBuffer:
     Episode-based replay buffer for QMIX.
 
     Stores complete episodes (required for the GRU's hidden state reset).
-    Each episode is a sequence of (obs, actions, reward, next_obs, done, state, next_state).
+    Each episode is a sequence of (obs, actions, reward, next_obs, terminated, state, next_state).
 
     Args:
         capacity: maximum number of episodes to store
@@ -461,90 +464,110 @@ class QMIXTrainer:
 
         while True:
             actions, hidden = self._select_actions(obs, hidden)
-            next_obs, reward, done, next_state = self.env.step(actions)
+            next_obs, reward, terminated, truncated, next_state = self.env.step(actions)
             ep_return += reward
             episode.append({
                 "obs":       [o.copy() for o in obs],
                 "actions":   actions,
                 "reward":    reward,
                 "next_obs":  [o.copy() for o in next_obs],
-                "done":      done,
+                # Only a true terminal state stops bootstrapping; the time
+                # limit (truncation) does not.
+                "terminated": terminated,
                 "state":     state.copy(),
                 "next_state": next_state.copy(),
             })
             obs, state = next_obs, next_state
-            if done:
+            if terminated or truncated:
                 break
 
         return episode, ep_return
+
+    def _unroll(self, net: AgentQNetwork, obs: torch.Tensor) -> torch.Tensor:
+        """
+        Run the recurrent agent network through time.
+
+        All (episode, agent) sequences go through the shared network as one
+        batch. The GRU hidden state starts at zero at each episode's first
+        step and carries from step t to step t+1 of the SAME agent, which is
+        what lets it summarize that agent's history.
+
+        Args:
+            obs: (B, T, n_agents, obs_dim)
+
+        Returns:
+            Q-values, (B, T, n_agents, n_actions)
+        """
+        B, T, N, _ = obs.shape
+        h = net.init_hidden(B * N)
+        qs = []
+        for t in range(T):
+            q, h = net(obs[:, t].reshape(B * N, -1), h)
+            qs.append(q.view(B, N, -1))
+        return torch.stack(qs, dim=1)
 
     def _train_step(self) -> float:
         """
         Sample a batch of episodes and compute the QMIX TD loss.
 
         For each timestep in each episode:
-            Q_i(τ_i, a_i) via agent_net
+            Q_i(τ_i, a_i) via agent_net, unrolled through the episode
             Q_total = mix(Q_1, ..., Q_n; state)
             target  = r + γ * mix(max_a Q_target_1, ...; next_state)
             loss    = Huber(Q_total, target)
+
+        Episodes are kept as sequences, padded to a common length, and the
+        padding is masked out of the loss.
 
         Returns:
             mean batch loss
         """
         episodes = self.buffer.sample(self.batch_size)
-        # Flatten all steps from all episodes
-        all_obs, all_actions, all_rewards = [], [], []
-        all_next_obs, all_dones, all_states, all_next_states = [], [], [], []
+        B, N = len(episodes), self.n_agents
+        T = max(len(ep) for ep in episodes)
+        obs_dim, state_dim = self.env.obs_dim, self.env.state_dim
 
-        for ep in episodes:
-            for step in ep:
-                all_obs.append(step["obs"])
-                all_actions.append(step["actions"])
-                all_rewards.append(step["reward"])
-                all_next_obs.append(step["next_obs"])
-                all_dones.append(float(step["done"]))
-                all_states.append(step["state"])
-                all_next_states.append(step["next_state"])
+        # Step T of each sequence holds the final next_obs / next_state, so
+        # targets for step t can read the network's output at step t + 1.
+        obs        = np.zeros((B, T + 1, N, obs_dim), dtype=np.float32)
+        states     = np.zeros((B, T + 1, state_dim), dtype=np.float32)
+        actions    = np.zeros((B, T, N), dtype=np.int64)
+        rewards    = np.zeros((B, T), dtype=np.float32)
+        terminated = np.zeros((B, T), dtype=np.float32)
+        mask       = np.zeros((B, T), dtype=np.float32)
+        for b, ep in enumerate(episodes):
+            L = len(ep)
+            obs[b, :L]        = [step["obs"] for step in ep]
+            obs[b, L]         = ep[-1]["next_obs"]
+            states[b, :L]     = [step["state"] for step in ep]
+            states[b, L]      = ep[-1]["next_state"]
+            actions[b, :L]    = [step["actions"] for step in ep]
+            rewards[b, :L]    = [step["reward"] for step in ep]
+            terminated[b, :L] = [float(step["terminated"]) for step in ep]
+            mask[b, :L]       = 1.0
 
-        T = len(all_rewards)
-        if T == 0:
-            return 0.0
+        obs        = torch.from_numpy(obs).to(DEVICE)
+        states     = torch.from_numpy(states).to(DEVICE)
+        actions    = torch.from_numpy(actions).to(DEVICE)
+        rewards    = torch.from_numpy(rewards).to(DEVICE)
+        terminated = torch.from_numpy(terminated).to(DEVICE)
+        mask       = torch.from_numpy(mask).to(DEVICE)
 
-        states      = torch.from_numpy(np.array(all_states)).float().to(DEVICE)
-        next_states = torch.from_numpy(np.array(all_next_states)).float().to(DEVICE)
-        rewards     = torch.tensor(all_rewards, dtype=torch.float32, device=DEVICE)
-        dones       = torch.tensor(all_dones, dtype=torch.float32, device=DEVICE)
+        # Online Q for the chosen actions at steps 0..T-1
+        q = self._unroll(self.agent_net, obs)                                   # (B, T+1, N, A)
+        q_chosen = q[:, :-1].gather(3, actions.unsqueeze(3)).squeeze(3)         # (B, T, N)
+        q_total = self.mixer(q_chosen.reshape(B * T, N),
+                             states[:, :-1].reshape(B * T, state_dim)).view(B, T)
 
-        # Per-agent Q-values for chosen actions (online network)
-        agent_qs = []
-        agent_qs_target = []
-        h_on  = self.agent_net.init_hidden(T)
-        h_tgt = self.agent_target.init_hidden(T)
-
-        for i in range(self.n_agents):
-            obs_i      = torch.from_numpy(np.array([s[i] for s in all_obs])).float().to(DEVICE)
-            next_obs_i = torch.from_numpy(np.array([s[i] for s in all_next_obs])).float().to(DEVICE)
-            act_i      = torch.tensor([a[i] for a in all_actions], dtype=torch.long, device=DEVICE)
-
-            q_i, h_on  = self.agent_net(obs_i, h_on)
-            q_chosen_i = q_i.gather(1, act_i.unsqueeze(1)).squeeze(1)
-            agent_qs.append(q_chosen_i)
-
-            with torch.no_grad():
-                q_tgt_i, h_tgt = self.agent_target(next_obs_i, h_tgt)
-                agent_qs_target.append(q_tgt_i.max(dim=1)[0])
-
-        agent_qs_t      = torch.stack(agent_qs, dim=1)           # (T, n_agents)
-        agent_qs_tgt_t  = torch.stack(agent_qs_target, dim=1)   # (T, n_agents)
-
-        # Mix
-        q_total        = self.mixer(agent_qs_t, states).squeeze(1)        # (T,)
+        # Target: greedy target-network Q at steps 1..T, mixed with next_state
         with torch.no_grad():
-            q_total_tgt = self.mixer_target(agent_qs_tgt_t, next_states).squeeze(1)
+            q_next = self._unroll(self.agent_target, obs)[:, 1:].max(dim=3)[0]  # (B, T, N)
+            q_total_tgt = self.mixer_target(q_next.reshape(B * T, N),
+                                            states[:, 1:].reshape(B * T, state_dim)).view(B, T)
 
-        target = rewards + self.gamma * (1 - dones) * q_total_tgt
+        target = rewards + self.gamma * (1 - terminated) * q_total_tgt
 
-        loss = F.huber_loss(q_total, target)
+        loss = (F.huber_loss(q_total, target, reduction="none") * mask).sum() / mask.sum()
         self.optimizer.zero_grad()
         loss.backward()
         nn.utils.clip_grad_norm_(
@@ -644,8 +667,8 @@ def plot_agent_trajectories(env: CooperativeNavEnv, trainer: QMIXTrainer) -> Non
         for i in range(env.n_agents):
             trajectories[i].append(env._agent_pos[i].copy())
         actions, hidden = trainer._select_actions(obs, hidden)
-        obs, _, done, state = env.step(actions)
-        if done:
+        obs, _, terminated, truncated, state = env.step(actions)
+        if terminated or truncated:
             break
 
     colors = ["steelblue", "darkorange", "green", "red", "purple"]
@@ -685,26 +708,21 @@ TRAINING_CONFIG = {
     "lr":             5e-4,
     "n_episodes":     fast_or(500, 15),
     "epsilon_decay":  300,
-    "batch_size":     32,
+    "batch_size":     fast_or(32, 4),   # fast mode: small enough that training steps run
     "target_update":  10,
+    "seeds":          fast_or([0, 1, 2, 3, 4], [0, 1]),  # each seed is a full training run
+    "eval_episodes":  10,
 }
 
 
-def main():
-    print("=== QMIX — Cooperative Multi-Agent RL ===")
-
-    cfg = TRAINING_CONFIG
-
-    # 1. Environment
+def train_one_seed(cfg: dict, seed: int) -> tuple:
+    """Build the environment and trainer, seed everything, and train."""
+    seed_everything(seed)   # the environment and ε-greedy draw from random and NumPy
     env = CooperativeNavEnv(
         n_agents=cfg["n_agents"],
         n_landmarks=cfg["n_landmarks"],
         max_steps=50,
     )
-    print(f"Env: {cfg['n_agents']} agents, {cfg['n_landmarks']} landmarks")
-    print(f"Obs dim: {env.obs_dim}, State dim: {env.state_dim}, Actions: {env.N_ACTIONS}")
-
-    # 2. Trainer
     trainer = QMIXTrainer(
         env,
         hidden_dim=cfg["hidden_dim"],
@@ -714,26 +732,44 @@ def main():
         batch_size=cfg["batch_size"],
         target_update=cfg["target_update"],
     )
-
-    total_params = (sum(p.numel() for p in trainer.agent_net.parameters()) +
-                    sum(p.numel() for p in trainer.mixer.parameters()))
-    print(f"Total parameters: {total_params:,}")
-
-    # 3. Train
     history = trainer.train(n_episodes=cfg["n_episodes"])
+    return env, trainer, history
 
-    # 4. Visualize
-    plot_training_history(history)
-    plot_agent_trajectories(env, trainer)
 
-    # 5. Evaluation
-    print("\n--- Evaluation (10 greedy episodes) ---")
-    trainer.epsilon = 0.0   # greedy
-    eval_returns = []
-    for _ in range(10):
-        _, ep_ret = trainer._collect_episode()
-        eval_returns.append(ep_ret)
-    print(f"Mean return: {np.mean(eval_returns):.2f} ± {np.std(eval_returns):.2f}")
+def evaluate(trainer: QMIXTrainer, n_episodes: int) -> float:
+    """Mean return of the greedy joint policy (ε = 0) over fresh episodes."""
+    epsilon, trainer.epsilon = trainer.epsilon, 0.0
+    returns = [trainer._collect_episode()[1] for _ in range(n_episodes)]
+    trainer.epsilon = epsilon
+    return float(np.mean(returns))
+
+
+def main():
+    print("=== QMIX — Cooperative Multi-Agent RL ===")
+
+    cfg = TRAINING_CONFIG
+    probe = CooperativeNavEnv(n_agents=cfg["n_agents"], n_landmarks=cfg["n_landmarks"])
+    print(f"Env: {cfg['n_agents']} agents, {cfg['n_landmarks']} landmarks")
+    print(f"Obs dim: {probe.obs_dim}, State dim: {probe.state_dim}, Actions: {probe.N_ACTIONS}")
+
+    # One training run says little: RL results vary a lot between seeds.
+    # Train once per seed and report the mean with a 95% confidence interval.
+    scores = []
+    for i, seed in enumerate(cfg["seeds"]):
+        print(f"\n--- Seed {seed} ---")
+        env, trainer, history = train_one_seed(cfg, seed)
+        if i == 0:
+            total_params = (sum(p.numel() for p in trainer.agent_net.parameters()) +
+                            sum(p.numel() for p in trainer.mixer.parameters()))
+            print(f"Total parameters: {total_params:,}")
+            plot_training_history(history)
+            plot_agent_trajectories(env, trainer)
+        scores.append(evaluate(trainer, cfg["eval_episodes"]))
+        print(f"  Greedy evaluation return ({cfg['eval_episodes']} episodes): {scores[-1]:.2f}")
+
+    mean, lo, hi = mean_confidence_interval(scores)
+    print(f"\nGreedy return over {len(scores)} seeds: {mean:.2f}  "
+          f"(95% CI [{lo:.2f}, {hi:.2f}]; per seed: {np.round(scores, 2).tolist()})")
 
 
 if __name__ == "__main__":
