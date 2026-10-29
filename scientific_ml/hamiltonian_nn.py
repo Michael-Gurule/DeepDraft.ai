@@ -377,8 +377,8 @@ def leapfrog_rollout(model: HNN, q0: np.ndarray, p0: np.ndarray,
     for _ in range(n_steps):
         q.requires_grad_(True); p.requires_grad_(True)
         H   = model.hamiltonian(q, p)
-        dHdq = autograd.grad(H.sum(), q)[0]
-        dHdp = autograd.grad(H.sum(), p)[0]
+        # One grad call for both inputs: a second call would find the graph freed.
+        dHdq, dHdp = autograd.grad(H.sum(), (q, p))
 
         p_half = (p - dt/2 * dHdq).detach()
 
