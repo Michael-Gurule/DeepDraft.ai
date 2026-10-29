@@ -104,6 +104,11 @@ def simulate_gbm(S0: float, mu: float, sigma: float,
     """
     Simulate asset price paths using Geometric Brownian Motion.
 
+    With antithetic=True, row i and row i + n_sims/2 are a pair driven by
+    shocks z and -z, and an odd n_sims is rounded up to keep every path paired.
+    Pass the same flag to the pricing functions so their standard errors
+    account for the pairing.
+
     Returns:
         paths: (n_sims, n_days + 1) array of price paths
                paths[:, 0] = S0 (starting price)
@@ -111,11 +116,12 @@ def simulate_gbm(S0: float, mu: float, sigma: float,
     rng = np.random.RandomState(seed)
 
     if antithetic:
-        n_raw = n_sims // 2
+        n_raw = (n_sims + 1) // 2
         z_raw = rng.standard_normal((n_raw, n_days))
         z     = np.vstack([z_raw, -z_raw])  # antithetic pairs
     else:
         z = rng.standard_normal((n_sims, n_days))
+    n_sims = z.shape[0]
 
     # GBM analytical formula: log-normal increments
     drift = (mu - 0.5 * sigma ** 2) * dt
@@ -214,7 +220,8 @@ def calculate_var_cvar(paths: np.ndarray, S0: float = None,
 # ─────────────────────────────────────────────
 
 def price_european_option(paths: np.ndarray, K: float, rf: float,
-                            T: float, option_type: str = "call") -> dict:
+                            T: float, option_type: str = "call",
+                            antithetic: bool = False) -> dict:
     """
     Price European option via Monte Carlo (risk-neutral pricing).
 
@@ -227,6 +234,7 @@ def price_european_option(paths: np.ndarray, K: float, rf: float,
         rf:          risk-free rate (annual)
         T:           time to expiry (years)
         option_type: 'call' or 'put'
+        antithetic:  True if paths come in antithetic pairs (simulate_gbm)
 
     Returns:
         dict with price, std_error, confidence_interval
@@ -239,9 +247,7 @@ def price_european_option(paths: np.ndarray, K: float, rf: float,
         payoff = np.maximum(K - S_T, 0)
 
     discount      = np.exp(-rf * T)
-    prices        = discount * payoff
-    mc_price      = prices.mean()
-    std_error     = prices.std() / np.sqrt(len(prices))
+    mc_price, std_error = mc_mean_and_se(discount * payoff, antithetic)
     ci            = (mc_price - 1.96 * std_error, mc_price + 1.96 * std_error)
 
     print(f"  {option_type.capitalize()} option price: ${mc_price:.4f}  "
@@ -252,7 +258,8 @@ def price_european_option(paths: np.ndarray, K: float, rf: float,
 
 
 def price_asian_option(paths: np.ndarray, K: float, rf: float,
-                        T: float, option_type: str = "call") -> dict:
+                        T: float, option_type: str = "call",
+                        antithetic: bool = False) -> dict:
     """
     Price Asian (average-price) option via Monte Carlo.
 
@@ -270,12 +277,31 @@ def price_asian_option(paths: np.ndarray, K: float, rf: float,
         payoff = np.maximum(K - S_avg, 0)
 
     discount   = np.exp(-rf * T)
-    mc_price   = (discount * payoff).mean()
-    std_error  = (discount * payoff).std() / np.sqrt(len(payoff))
+    mc_price, std_error = mc_mean_and_se(discount * payoff, antithetic)
     ci         = (mc_price - 1.96 * std_error, mc_price + 1.96 * std_error)
 
     print(f"  Asian {option_type} price: ${mc_price:.4f}  ± {1.96*std_error:.4f}")
     return {"price": mc_price, "std_error": std_error, "ci_95": ci}
+
+
+def mc_mean_and_se(values: np.ndarray, antithetic: bool = False) -> tuple[float, float]:
+    """
+    Monte Carlo estimate of E[values] and its standard error.
+
+    Plain sampling: SE = std(values) / √N.
+
+    Antithetic sampling: the two halves of `values` are pairs (see
+    simulate_gbm). The pair members are negatively correlated, which is the
+    whole point, so they are not N independent draws and std / √N is wrong.
+    Average each pair first; the N/2 pair means ARE independent:
+        SE = std(pair means) / √(N/2)
+    """
+    values = np.asarray(values, dtype=float)
+    if not antithetic:
+        return float(values.mean()), float(values.std(ddof=1) / np.sqrt(len(values)))
+    half = len(values) // 2
+    pair_means = (values[:half] + values[half:2 * half]) / 2
+    return float(pair_means.mean()), float(pair_means.std(ddof=1) / np.sqrt(half))
 
 
 # ─────────────────────────────────────────────
@@ -427,13 +453,15 @@ def main():
 
     # 3. Option pricing (risk-neutral: drift = rf)
     print("\nEuropean Option Pricing (K=100, T=1yr, rf=4%):")
+    anti = cfg["antithetic"]
     paths_rn = simulate_gbm(ac["S0"], ac["rf"], ac["sigma"],
-                              cfg["n_days"], cfg["n_simulations"], seed=cfg["seed"])
-    price_european_option(paths_rn, K=100, rf=ac["rf"], T=1.0, option_type="call")
-    price_european_option(paths_rn, K=100, rf=ac["rf"], T=1.0, option_type="put")
+                              cfg["n_days"], cfg["n_simulations"],
+                              antithetic=anti, seed=cfg["seed"])
+    price_european_option(paths_rn, K=100, rf=ac["rf"], T=1.0, option_type="call", antithetic=anti)
+    price_european_option(paths_rn, K=100, rf=ac["rf"], T=1.0, option_type="put", antithetic=anti)
 
     print("\nAsian Call Option:")
-    price_asian_option(paths_rn, K=100, rf=ac["rf"], T=1.0, option_type="call")
+    price_asian_option(paths_rn, K=100, rf=ac["rf"], T=1.0, option_type="call", antithetic=anti)
 
     # 4. Portfolio VaR
     print("\nMulti-Asset Portfolio VaR:")
