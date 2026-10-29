@@ -52,6 +52,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 
 from deepdraft.core import fast_or, save_figure
+from deepdraft.evaluation import mase, temporal_train_val_test_split
 
 # ---------------------------------------------------------------------------
 # CONFIG — replace with your values
@@ -70,7 +71,8 @@ CONFIG = {
     "batch_size": 256,        # Placeholder: mini-batch size
     "max_epochs": fast_or(50, 1),  # Placeholder: training epochs
     "patience": 10,           # Placeholder: early stopping patience
-    "val_fraction": 0.1,      # Placeholder: fraction of series for validation
+    "val_fraction": 0.1,      # Placeholder: fraction of series for validation (early stopping)
+    "test_fraction": 0.1,     # Placeholder: most recent fraction, held out for the final score
     "nhits_pool_sizes": [8, 4, 1],  # Placeholder: N-HiTS pooling per stack
     "device": "cpu",          # Placeholder: "cuda" if GPU available
 }
@@ -503,15 +505,30 @@ def create_dataloaders(
     lookback: int,
     horizon: int,
     val_fraction: float = 0.1,
+    test_fraction: float = 0.1,
     batch_size: int = 256,
-) -> Tuple[DataLoader, DataLoader]:
-    """Split series into train/val windows (temporal split, no shuffle on val)."""
-    split = int(len(series) * (1 - val_fraction))
-    train_ds = WindowDataset(series[:split], lookback, horizon)
-    val_ds = WindowDataset(series[split - lookback:], lookback, horizon)
+) -> Tuple[DataLoader, DataLoader, DataLoader]:
+    """
+    Split the series in time order into train, validation, and test windows.
+
+        train       fit the weights
+        validation  early stopping (and any model comparison)
+        test        the final score, reported once
+
+    Each split's forecast targets fall entirely inside that split. A window's
+    lookback may reach back into the previous split; that is past data, which
+    a real forecast would also see.
+    """
+    train_idx, val_idx, test_idx = temporal_train_val_test_split(
+        len(series), val_size=val_fraction, test_size=test_fraction)
+    val_start, test_start = val_idx[0], test_idx[0]
+    train_ds = WindowDataset(series[:val_start], lookback, horizon)
+    val_ds = WindowDataset(series[val_start - lookback:test_start], lookback, horizon)
+    test_ds = WindowDataset(series[test_start - lookback:], lookback, horizon)
     train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True, drop_last=True)
     val_dl = DataLoader(val_ds, batch_size=batch_size, shuffle=False)
-    return train_dl, val_dl
+    test_dl = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
+    return train_dl, val_dl, test_dl
 
 
 # ---------------------------------------------------------------------------
@@ -623,15 +640,25 @@ def train_nbeats(
 
 def evaluate(
     model: nn.Module,
-    val_dl: DataLoader,
+    test_dl: DataLoader,
     device: str = "cpu",
     use_instance_norm: bool = True,
+    train_series: Optional[np.ndarray] = None,
+    period: int = 1,
 ) -> dict:
-    """Compute MAE, RMSE, sMAPE on validation loader."""
+    """
+    Compute MAE, RMSE, sMAPE (and MASE if train_series is given) on a held-out loader.
+
+    Pass the TEST loader for the final score. The validation loader already
+    steered early stopping, so its score is optimistic.
+
+    MASE divides MAE by the in-sample MAE of the seasonal naive forecast with
+    the given period on train_series; below 1 means the model beats it.
+    """
     model.eval().to(device)
     preds, targets = [], []
     with torch.no_grad():
-        for x, y in val_dl:
+        for x, y in test_dl:
             x, y = x.to(device), y.to(device)
             if use_instance_norm:
                 x_norm, last, std = normalize_windows(x)
@@ -652,7 +679,12 @@ def evaluate(
     print(f"  MAE:   {mae:.4f}")
     print(f"  RMSE:  {rmse:.4f}")
     print(f"  sMAPE: {smape:.2f}%")
-    return {"mae": mae, "rmse": rmse, "smape": smape, "preds": preds, "targets": targets}
+    metrics = {"mae": mae, "rmse": rmse, "smape": smape, "preds": preds, "targets": targets}
+    if train_series is not None:
+        metrics["mase"] = mase(targets.numpy().ravel(), preds.numpy().ravel(),
+                               train_series, m=period)
+        print(f"  MASE:  {metrics['mase']:.3f}  (seasonal naive, period={period})")
+    return metrics
 
 
 # ---------------------------------------------------------------------------
@@ -787,6 +819,26 @@ def naive_seasonal_forecast(series: np.ndarray, horizon: int, period: int = 24) 
     return np.tile(last_period, reps)[:horizon]
 
 
+def evaluate_seasonal_naive(test_dl: DataLoader, horizon: int, period: int = 24) -> dict:
+    """
+    Score the seasonal naive baseline on exactly the windows the models see.
+
+    A baseline scored on a different set of windows (for example a single
+    window) is not comparable: sMAPE varies a lot from window to window.
+    """
+    preds, targets = [], []
+    for x, y in test_dl:
+        preds.append(torch.tensor(np.stack([
+            naive_seasonal_forecast(w, horizon, period) for w in x.numpy()
+        ])))
+        targets.append(y)
+    preds, targets = torch.cat(preds), torch.cat(targets)
+    return {
+        "mae": F.l1_loss(preds, targets).item(),
+        "smape": smape_loss(preds, targets).item() * 100,
+    }
+
+
 def benchmark(
     series: np.ndarray,
     lookback: int = 168,
@@ -800,12 +852,16 @@ def benchmark(
     """
     Train and compare N-BEATS (interpretable), N-BEATS (generic), and N-HiTS.
     Also computes seasonal naïve baseline.
+
+    Every model early-stops on the validation windows and is scored on the
+    same held-out test windows as the baseline.
     """
     print("=" * 60)
     print(f"Benchmark: lookback={lookback}, horizon={horizon}")
     print("=" * 60)
 
-    train_dl, val_dl = create_dataloaders(series, lookback, horizon, val_fraction=0.1)
+    train_dl, val_dl, test_dl = create_dataloaders(
+        series, lookback, horizon, val_fraction=0.1, test_fraction=0.1)
 
     models = {
         "NBeats-Interp": NBeats(lookback, horizon, mode="interpretable",
@@ -822,24 +878,17 @@ def benchmark(
         print(f"\n--- {name} ({n_params:,} params) ---")
         history = train_nbeats(model, train_dl, val_dl, max_epochs=max_epochs,
                                patience=5, device=device)
-        metrics = evaluate(model, val_dl, device=device)
+        metrics = evaluate(model, test_dl, device=device)
         results[name] = metrics
 
-    # Seasonal naïve
-    val_start = int(len(series) * 0.9)
-    test_series = series[val_start - lookback:]
-    naive_pred = naive_seasonal_forecast(test_series[:lookback], horizon)
-    naive_target = test_series[lookback: lookback + horizon]
-    naive_smape = float(smape_loss(
-        torch.tensor(naive_pred), torch.tensor(naive_target)
-    )) * 100
-    results["Seasonal-Naïve"] = {"smape": naive_smape}
+    # Seasonal naïve, on the same test windows
+    results["Seasonal-Naïve"] = evaluate_seasonal_naive(test_dl, horizon, period=24)
 
     print("\n" + "=" * 40)
-    print(f"{'Model':<20} {'sMAPE%':>8}")
-    print("-" * 30)
+    print(f"{'Model':<20} {'test sMAPE%':>11}")
+    print("-" * 32)
     for name, m in results.items():
-        print(f"{name:<20} {m['smape']:>8.2f}")
+        print(f"{name:<20} {m['smape']:>11.2f}")
 
     return results
 
@@ -864,11 +913,16 @@ def main():
     lookback = cfg["lookback"]
     horizon = cfg["horizon"]
 
-    train_dl, val_dl = create_dataloaders(
+    train_dl, val_dl, test_dl = create_dataloaders(
         series, lookback, horizon,
         val_fraction=cfg["val_fraction"],
+        test_fraction=cfg["test_fraction"],
         batch_size=cfg["batch_size"],
     )
+    # The training part of the series sets the MASE scale
+    _, val_idx, _ = temporal_train_val_test_split(
+        len(series), val_size=cfg["val_fraction"], test_size=cfg["test_fraction"])
+    train_series = series[:val_idx[0]]
 
     print(f"\nTraining N-BEATS (interpretable)...")
     model = NBeats(
@@ -892,7 +946,8 @@ def main():
         device=device,
     )
 
-    metrics = evaluate(model, val_dl, device=device)
+    print("\nN-BEATS, held-out test windows:")
+    metrics = evaluate(model, test_dl, device=device, train_series=train_series, period=24)
     plot_training_curves(history)
 
     # Show decomposed components on one window
@@ -925,7 +980,8 @@ def main():
     history_h = train_nbeats(nhits, train_dl, val_dl, lr=cfg["lr"],
                               max_epochs=cfg["max_epochs"], patience=cfg["patience"],
                               device=device)
-    evaluate(nhits, val_dl, device=device)
+    print("\nN-HiTS, held-out test windows:")
+    evaluate(nhits, test_dl, device=device, train_series=train_series, period=24)
 
     print("\n--- Benchmark (quick, 20 epochs) ---")
     benchmark(series, lookback=lookback, horizon=horizon,

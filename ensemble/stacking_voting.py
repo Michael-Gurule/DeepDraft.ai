@@ -217,7 +217,14 @@ def evaluate_classifiers(
     X_test,  y_test,
     cv: int = 5,
 ) -> pd.DataFrame:
-    """Train all models and evaluate on test set + cross-validation."""
+    """
+    Train all models and evaluate on test set + cross-validation.
+
+    The table is ranked by CV-AUC, computed on the training data only, because
+    that is the number to choose a model by. The test AUC is reported for the
+    record; ranking or picking by it would turn the test set into a validation
+    set and make the winner's score optimistic.
+    """
     results = []
     for name, model in models.items():
         print(f"  Fitting {name}...", end=" ", flush=True)
@@ -238,7 +245,7 @@ def evaluate_classifiers(
             "test_auc": auc or 0.0, "cv_auc": cv_auc,
         })
 
-    return pd.DataFrame(results).sort_values("test_auc", ascending=False)
+    return pd.DataFrame(results).sort_values("cv_auc", ascending=False)
 
 
 def evaluate_regressors(
@@ -247,6 +254,7 @@ def evaluate_regressors(
     X_test,  y_test,
     cv: int = 5,
 ) -> pd.DataFrame:
+    """Train all models; rank by CV-R² on the training data, report test metrics."""
     results = []
     for name, model in models.items():
         print(f"  Fitting {name}...", end=" ", flush=True)
@@ -259,18 +267,20 @@ def evaluate_regressors(
         print(f"RMSE={rmse:.4f}  R²={r2:.4f}  CV-R²={cv_r2:.4f}")
         results.append({"model": name, "rmse": rmse, "r2": r2, "cv_r2": cv_r2})
 
-    return pd.DataFrame(results).sort_values("r2", ascending=False)
+    return pd.DataFrame(results).sort_values("cv_r2", ascending=False)
 
 
 # ─────────────────────────────────────────────
 # Meta-Learner Comparison
 # ─────────────────────────────────────────────
 
-def compare_meta_learners(X_train, y_train, X_test, y_test,
+def compare_meta_learners(X_train, y_train, X_val, y_val,
                            base_estimators: list, cv: int = 5) -> pd.DataFrame:
     """
     Compare different meta-learners on the same base estimators.
-    Useful for selecting the best meta-learner without retraining base models.
+
+    Each stack is fit on X_train and scored on a VALIDATION split carved from
+    the training data, so choosing the meta-learner never touches the test set.
     """
     meta_learners = {
         "LR (C=1)":    LogisticRegression(C=1.0, max_iter=500),        # # Placeholder:
@@ -286,11 +296,11 @@ def compare_meta_learners(X_train, y_train, X_test, y_test,
         # RidgeClassifier has no predict_proba; ROC-AUC only needs a ranking
         # score, so fall back to decision_function.
         if hasattr(stk, "predict_proba"):
-            y_proba = stk.predict_proba(X_test)[:, 1]
+            y_proba = stk.predict_proba(X_val)[:, 1]
         else:
-            y_proba = stk.decision_function(X_test)
-        auc = roc_auc_score(y_test, y_proba)
-        print(f"  Meta={meta_name:15s} | AUC={auc:.4f}")
+            y_proba = stk.decision_function(X_val)
+        auc = roc_auc_score(y_val, y_proba)
+        print(f"  Meta={meta_name:15s} | val AUC={auc:.4f}")
         results.append({"meta_learner": meta_name, "auc": auc})
     return pd.DataFrame(results).sort_values("auc", ascending=False)
 
@@ -339,7 +349,7 @@ def plot_comparison(df_clf: pd.DataFrame, df_reg: pd.DataFrame = None):
 def plot_meta_learner_comparison(df: pd.DataFrame):
     fig, ax = plt.subplots(figsize=(8, 4))
     ax.bar(df["meta_learner"], df["auc"], color="steelblue", edgecolor="white")
-    ax.set_ylabel("ROC-AUC")
+    ax.set_ylabel("ROC-AUC (validation)")
     ax.set_title("Stacking — Meta-Learner Comparison")
     ax.grid(True, alpha=0.3, axis="y")
     plt.tight_layout()
@@ -396,8 +406,11 @@ def main():
 
     # ── Meta-learner comparison ──────────────────────────────────────
     print("\n=== Meta-Learner Comparison ===")
-    X_tr, X_te, y_tr, y_te = generate_classification_data(CONFIG)
-    df_meta = compare_meta_learners(X_tr, y_tr, X_te, y_te,
+    X_tr, _, y_tr, _ = generate_classification_data(CONFIG)
+    X_fit, X_val, y_fit, y_val = train_test_split(
+        X_tr, y_tr, test_size=0.25, random_state=CONFIG["seed"], stratify=y_tr
+    )
+    df_meta = compare_meta_learners(X_fit, y_fit, X_val, y_val,
                                      base_clf, cv=CONFIG["cv"])
 
     # ── Visualization ────────────────────────────────────────────────

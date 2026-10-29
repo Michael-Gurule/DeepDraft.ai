@@ -58,6 +58,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 
 from deepdraft.core import fast_or, save_figure
+from deepdraft.evaluation import temporal_train_val_test_split
 
 DEVICE = (
     "cuda" if torch.cuda.is_available()
@@ -171,6 +172,8 @@ TFT_CONFIG = {
     "epochs":              fast_or(50, 2),  # Placeholder: 20–200
     "patience":            10,
     "quantiles":           [0.1, 0.5, 0.9],
+    "val_size":            0.15,  # Placeholder: fraction for early stopping
+    "test_size":           0.15,  # Placeholder: most recent fraction, scored once at the end
 }
 
 
@@ -400,17 +403,23 @@ def train_tft(df: pd.DataFrame, entity_id: int = 0,
                                                     if c.startswith("cov_")]
     series = entity_df[feature_cols].values.astype(np.float32)
 
-    # Normalize
-    mean, std = series.mean(axis=0), series.std(axis=0) + 1e-8
+    # Chronological split: train | validation | test. The test block is
+    # never touched here; evaluate_forecasts() scores it once at the end.
+    _, val_idx, test_idx = temporal_train_val_test_split(
+        len(series), val_size=config["val_size"], test_size=config["test_size"])
+    val_start, test_start = val_idx[0], test_idx[0]
+
+    # Normalize with TRAINING statistics only. Statistics from the full series
+    # would leak the level and spread of future data into the inputs.
+    mean, std = series[:val_start].mean(axis=0), series[:val_start].std(axis=0) + 1e-8
     series_norm = (series - mean) / std
 
-    # Split
     enc, dec = config["encoder_len"], config["decoder_len"]
-    split    = int(0.8 * len(series_norm))
-    train_ds = TimeSeriesWindowDataset(series_norm[:split], enc, dec)
+    train_ds = TimeSeriesWindowDataset(series_norm[:val_start], enc, dec)
     # Start the validation slice enc steps early so its first window can use
-    # training history as context; every validation target lies after split.
-    val_ds   = TimeSeriesWindowDataset(series_norm[split - enc:], enc, dec)
+    # training history as context; every validation target lies in
+    # [val_start, test_start).
+    val_ds   = TimeSeriesWindowDataset(series_norm[val_start - enc:test_start], enc, dec)
 
     train_dl = DataLoader(train_ds, batch_size=config["batch_size"], shuffle=True)
     val_dl   = DataLoader(val_ds,   batch_size=config["batch_size"])
@@ -488,12 +497,23 @@ def train_tft(df: pd.DataFrame, entity_id: int = 0,
 # EVALUATION
 # ─────────────────────────────────────────────
 
+def _test_start(n_obs: int, config: dict) -> int:
+    """First index of the test block, matching the split in train_tft()."""
+    _, _, test_idx = temporal_train_val_test_split(
+        n_obs, val_size=config["val_size"], test_size=config["test_size"])
+    return int(test_idx[0])
+
+
 def evaluate_forecasts(model: nn.Module, df: pd.DataFrame,
                         entity_id: int, mean: np.ndarray,
                         std: np.ndarray, feature_cols: list,
                         config: dict = None) -> dict:
     """
-    Evaluate quantile forecasts: RMSE on median (q50), coverage of q10-q90 interval.
+    Evaluate quantile forecasts on the held-out TEST block: RMSE and MAE on the
+    median (q50), and coverage of the q10-q90 interval.
+
+    Scoring the whole series would mix in windows the model trained on and
+    windows that drove early stopping, which flatters every metric.
     """
     if config is None:
         config = TFT_CONFIG
@@ -503,7 +523,10 @@ def evaluate_forecasts(model: nn.Module, df: pd.DataFrame,
     series_n   = (series - mean) / std
 
     enc, dec = config["encoder_len"], config["decoder_len"]
-    ds   = TimeSeriesWindowDataset(series_n, enc, dec)
+    test_start = _test_start(len(series_n), config)
+    # The first test window's encoder reaches back into validation data (past
+    # context); every scored target lies in the test block.
+    ds   = TimeSeriesWindowDataset(series_n[test_start - enc:], enc, dec)
     dl   = DataLoader(ds, batch_size=64)
 
     preds_q  = []
@@ -557,7 +580,8 @@ def plot_forecast_quantiles(model: nn.Module, df: pd.DataFrame,
                              std: np.ndarray, feature_cols: list,
                              config: dict = None, n_examples: int = 3) -> None:
     """
-    Plot a few example forecasts with quantile uncertainty bands.
+    Plot a few example forecasts from the held-out test block, with quantile
+    uncertainty bands.
     """
     if config is None:
         config = TFT_CONFIG
@@ -567,12 +591,12 @@ def plot_forecast_quantiles(model: nn.Module, df: pd.DataFrame,
     series_n  = (series - mean) / std
 
     enc, dec = config["encoder_len"], config["decoder_len"]
-    ds = TimeSeriesWindowDataset(series_n, enc, dec)
+    ds = TimeSeriesWindowDataset(series_n[_test_start(len(series_n), config) - enc:], enc, dec)
 
     model.eval()
     fig, axes = plt.subplots(1, n_examples, figsize=(5 * n_examples, 4), sharey=True)
 
-    indices = np.linspace(len(ds) // 4, 3 * len(ds) // 4, n_examples, dtype=int)
+    indices = np.linspace(0, len(ds) - 1, n_examples, dtype=int)
     for ax, idx in zip(axes, indices):
         X, y_true = ds[idx]
         with torch.no_grad():
@@ -591,7 +615,7 @@ def plot_forecast_quantiles(model: nn.Module, df: pd.DataFrame,
         ax.plot(range(dec),     p_med,    "tomato", linewidth=1.5, label="q50")
         ax.fill_between(range(dec), p_lo, p_hi, alpha=0.3, color="tomato", label="q10–q90")
         ax.axvline(0, color="gray", linestyle="--", alpha=0.5)
-        ax.set_title(f"Sample {idx}")
+        ax.set_title(f"Test window {idx}")
         ax.set_xlabel("Steps")
         if ax == axes[0]:
             ax.legend(fontsize=7)
@@ -616,7 +640,7 @@ def main():
     print("\nTraining on entity 0...")
     model, history, mean, std, feature_cols = train_tft(df, entity_id=0)
 
-    print("\nEvaluation:")
+    print("\nEvaluation (held-out test block):")
     evaluate_forecasts(model, df, entity_id=0, mean=mean, std=std,
                         feature_cols=feature_cols)
 
