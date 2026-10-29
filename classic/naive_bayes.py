@@ -60,7 +60,7 @@ from sklearn.metrics import (
 from sklearn.pipeline import Pipeline
 from sklearn.datasets import make_classification, fetch_20newsgroups
 
-from deepdraft.core import save_figure
+from deepdraft.core import fast_or, save_figure
 
 
 # ─────────────────────────────────────────────
@@ -305,11 +305,11 @@ def tune_multinomial(X_train_text: list, y_train: np.ndarray) -> Pipeline:
     """
     pipeline = build_text_pipeline()
     param_grid = {
-        "vectorizer__ngram_range": [(1, 1), (1, 2)],
-        "vectorizer__max_features": [10000, 20000, None],
-        "model__alpha": [0.01, 0.1, 0.5, 1.0, 5.0],
+        "vectorizer__ngram_range": fast_or([(1, 1), (1, 2)], [(1, 1)]),
+        "vectorizer__max_features": fast_or([10000, 20000, None], [10000]),
+        "model__alpha": fast_or([0.01, 0.1, 0.5, 1.0, 5.0], [0.1, 1.0]),
     }
-    search = GridSearchCV(pipeline, param_grid, cv=5, scoring="accuracy", n_jobs=-1)
+    search = GridSearchCV(pipeline, param_grid, cv=fast_or(5, 2), scoring="accuracy", n_jobs=-1)
     search.fit(X_train_text, y_train)
     print(f"Best params: {search.best_params_}")
     print(f"Best CV accuracy: {search.best_score_:.4f}")
