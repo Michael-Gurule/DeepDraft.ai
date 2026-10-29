@@ -73,6 +73,8 @@ from sklearn.linear_model import RidgeCV, LogisticRegressionCV
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
+from deepdraft.core import save_figure
+
 
 # ─────────────────────────────────────────────
 # DATA
@@ -408,8 +410,7 @@ def plot_cate_scatter(
 
     plt.suptitle("CATE Estimation — True vs. Predicted")
     plt.tight_layout()
-    plt.savefig(filename, dpi=150)
-    plt.show()
+    save_figure(filename, dpi=150)
 
 
 def plot_cate_distribution(
@@ -433,8 +434,7 @@ def plot_cate_distribution(
     ax.set_title("CATE Distribution — True vs. Estimated")
     ax.legend()
     plt.tight_layout()
-    plt.savefig(filename, dpi=150)
-    plt.show()
+    save_figure(filename, dpi=150)
 
 
 def plot_qini_curves(
@@ -462,8 +462,7 @@ def plot_qini_curves(
     ax.set_title("Qini Curves — Policy Value Evaluation")
     ax.legend()
     plt.tight_layout()
-    plt.savefig(filename, dpi=150)
-    plt.show()
+    save_figure(filename, dpi=150)
 
 
 # ─────────────────────────────────────────────

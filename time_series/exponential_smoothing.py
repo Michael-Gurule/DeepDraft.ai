@@ -68,6 +68,8 @@ from statsmodels.tsa.holtwinters import (
 from statsmodels.tsa.forecasting.theta import ThetaModel
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 
+from deepdraft.core import save_figure
+
 # ─────────────────────────────────────────────
 # CONFIG
 # ─────────────────────────────────────────────
@@ -353,8 +355,7 @@ def plot_decomposition(y: pd.Series, seasonal_periods: int = 12):
         ax.set_ylabel(label); ax.grid(True, alpha=0.3)
     axes[-1].set_xlabel("Date")
     plt.tight_layout()
-    plt.savefig("ets_decomposition.png", dpi=150)
-    plt.show()
+    save_figure("ets_decomposition.png", dpi=150)
     print("Saved: ets_decomposition.png")
 
 
@@ -381,8 +382,7 @@ def plot_forecasts(results_raw: list, y_train: pd.Series, y_test: pd.Series, cfg
     ax.legend(fontsize=8, loc="upper left")
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.savefig("ets_forecasts.png", dpi=150)
-    plt.show()
+    save_figure("ets_forecasts.png", dpi=150)
     print("Saved: ets_forecasts.png")
 
 
@@ -404,8 +404,7 @@ def plot_prediction_intervals(result: dict, y_train: pd.Series, y_test: pd.Serie
     ax.set_xlabel("Date"); ax.set_ylabel("Value")
     ax.legend(); ax.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.savefig("ets_prediction_intervals.png", dpi=150)
-    plt.show()
+    save_figure("ets_prediction_intervals.png", dpi=150)
     print("Saved: ets_prediction_intervals.png")
 
 
@@ -418,8 +417,7 @@ def plot_comparison_bar(df: pd.DataFrame):
         ax.set_title(metric.upper())
         ax.grid(True, alpha=0.3, axis="x")
     plt.tight_layout()
-    plt.savefig("ets_comparison.png", dpi=150)
-    plt.show()
+    save_figure("ets_comparison.png", dpi=150)
     print("Saved: ets_comparison.png")
 
 

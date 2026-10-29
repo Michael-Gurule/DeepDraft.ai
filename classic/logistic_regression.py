@@ -43,6 +43,8 @@ from sklearn.metrics import (
 from sklearn.pipeline import Pipeline
 from sklearn.datasets import make_classification
 
+from deepdraft.core import save_figure
+
 
 # ─────────────────────────────────────────────
 # DATA
@@ -234,8 +236,7 @@ def plot_confusion_matrix(model, X_test: np.ndarray, y_test: np.ndarray) -> None
     disp.plot(cmap="Blues")
     plt.title("Logistic Regression — Confusion Matrix")
     plt.tight_layout()
-    plt.savefig("logistic_regression_confusion.png", dpi=150)
-    plt.show()
+    save_figure("logistic_regression_confusion.png", dpi=150)
 
 
 def plot_roc_curve(model, X_test: np.ndarray, y_test: np.ndarray) -> None:
@@ -259,8 +260,7 @@ def plot_roc_curve(model, X_test: np.ndarray, y_test: np.ndarray) -> None:
     plt.title("ROC Curve")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("logistic_regression_roc.png", dpi=150)
-    plt.show()
+    save_figure("logistic_regression_roc.png", dpi=150)
 
 
 def plot_coefficients(model, feature_names: list | None = None) -> None:
@@ -288,8 +288,7 @@ def plot_coefficients(model, feature_names: list | None = None) -> None:
     plt.xlabel("Coefficient (log-odds)")
     plt.title("Logistic Regression — Feature Coefficients")
     plt.tight_layout()
-    plt.savefig("logistic_regression_coefficients.png", dpi=150)
-    plt.show()
+    save_figure("logistic_regression_coefficients.png", dpi=150)
 
 
 # ─────────────────────────────────────────────

@@ -52,6 +52,8 @@ import torch.optim as optim
 import matplotlib.pyplot as plt
 import gymnasium as gym
 
+from deepdraft.core import fast_or, save_figure
+
 DEVICE = (
     "cuda" if torch.cuda.is_available()
     else "mps" if torch.backends.mps.is_available()
@@ -70,12 +72,12 @@ CONFIG = {
     "noise_clip":     0.5,            # # Placeholder: clip for target policy noise
     "expl_noise":     0.1,            # # Placeholder: exploration noise σ
     "policy_delay":   2,              # # Placeholder: actor update frequency
-    "buffer_size":    100_000,        # # Placeholder:
-    "batch_size":     256,            # # Placeholder:
-    "learning_starts": 5_000,         # # Placeholder:
-    "total_steps":    50_000,         # # Placeholder:
-    "eval_every":     5_000,          # # Placeholder:
-    "eval_episodes":  5,              # # Placeholder:
+    "buffer_size":    fast_or(100_000, 5_000),        # # Placeholder:
+    "batch_size":     fast_or(256, 64),            # # Placeholder:
+    "learning_starts": fast_or(5_000, 200),         # # Placeholder:
+    "total_steps":    fast_or(50_000, 600),         # # Placeholder:
+    "eval_every":     fast_or(5_000, 300),          # # Placeholder:
+    "eval_episodes":  fast_or(5, 1),              # # Placeholder:
     "seed":           42,
 }
 
@@ -332,8 +334,7 @@ def plot_training(history: dict):
     axes[1].set_title("Actor / Critic Loss"); axes[1].legend(); axes[1].grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plt.savefig("td3_training.png", dpi=150)
-    plt.show()
+    save_figure("td3_training.png", dpi=150)
     print("Saved: td3_training.png")
 
 

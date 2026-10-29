@@ -68,6 +68,8 @@ import torch.optim as optim
 from collections import deque
 import random
 
+from deepdraft.core import fast_or, save_figure
+
 # ─────────────────────────────────────────────
 # DEVICE
 # ─────────────────────────────────────────────
@@ -624,8 +626,7 @@ def plot_training_history(history: dict, window: int = 50) -> None:
 
     plt.suptitle("QMIX — Training History")
     plt.tight_layout()
-    plt.savefig("qmix_training.png", dpi=150)
-    plt.show()
+    save_figure("qmix_training.png", dpi=150)
 
 
 def plot_agent_trajectories(env: CooperativeNavEnv, trainer: QMIXTrainer) -> None:
@@ -669,8 +670,7 @@ def plot_agent_trajectories(env: CooperativeNavEnv, trainer: QMIXTrainer) -> Non
     ax.legend(fontsize=8)
     ax.grid(alpha=0.3)
     plt.tight_layout()
-    plt.savefig("qmix_trajectories.png", dpi=150)
-    plt.show()
+    save_figure("qmix_trajectories.png", dpi=150)
 
 
 # ─────────────────────────────────────────────
@@ -683,7 +683,7 @@ TRAINING_CONFIG = {
     "hidden_dim":     64,
     "mixing_embed":   32,
     "lr":             5e-4,
-    "n_episodes":     500,
+    "n_episodes":     fast_or(500, 15),
     "epsilon_decay":  300,
     "batch_size":     32,
     "target_update":  10,

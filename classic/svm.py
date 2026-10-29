@@ -53,6 +53,8 @@ from sklearn.metrics import (
 from sklearn.pipeline import Pipeline
 from sklearn.datasets import make_classification, make_regression
 
+from deepdraft.core import save_figure
+
 
 # ─────────────────────────────────────────────
 # DATA
@@ -279,8 +281,7 @@ def plot_decision_boundary_2d(model, X: np.ndarray, y: np.ndarray) -> None:
     plt.xlabel("Feature 0")
     plt.ylabel("Feature 1")
     plt.tight_layout()
-    plt.savefig("svm_decision_boundary.png", dpi=150)
-    plt.show()
+    save_figure("svm_decision_boundary.png", dpi=150)
 
 
 def plot_confusion_matrix(model, X_test: np.ndarray, y_test: np.ndarray) -> None:
@@ -289,8 +290,7 @@ def plot_confusion_matrix(model, X_test: np.ndarray, y_test: np.ndarray) -> None
     ConfusionMatrixDisplay(confusion_matrix(y_test, y_pred)).plot(cmap="Blues")
     plt.title("SVM — Confusion Matrix")
     plt.tight_layout()
-    plt.savefig("svm_confusion.png", dpi=150)
-    plt.show()
+    save_figure("svm_confusion.png", dpi=150)
 
 
 # ─────────────────────────────────────────────

@@ -60,6 +60,8 @@ from sklearn.metrics import (
 from sklearn.pipeline import Pipeline
 from sklearn.datasets import make_classification, fetch_20newsgroups
 
+from deepdraft.core import save_figure
+
 
 # ─────────────────────────────────────────────
 # DATA
@@ -324,8 +326,7 @@ def plot_confusion_matrix(model, X_test, y_test, title: str = "Naive Bayes") -> 
     ConfusionMatrixDisplay(confusion_matrix(y_test, y_pred)).plot(cmap="Blues")
     plt.title(f"{title} — Confusion Matrix")
     plt.tight_layout()
-    plt.savefig(f"{title.lower().replace(' ', '_')}_confusion.png", dpi=150)
-    plt.show()
+    save_figure(f"{title.lower().replace(' ', '_')}_confusion.png", dpi=150)
 
 
 def plot_top_features_per_class(pipeline: Pipeline, class_names: list,
@@ -365,8 +366,7 @@ def plot_top_features_per_class(pipeline: Pipeline, class_names: list,
 
     plt.suptitle("Top Discriminative Features per Class")
     plt.tight_layout()
-    plt.savefig("naive_bayes_top_features.png", dpi=150)
-    plt.show()
+    save_figure("naive_bayes_top_features.png", dpi=150)
 
 
 def compare_variants(X_test: np.ndarray, y_test: np.ndarray,
@@ -391,8 +391,7 @@ def compare_variants(X_test: np.ndarray, y_test: np.ndarray,
     plt.ylabel("Accuracy")
     plt.title("Naive Bayes Variant Comparison")
     plt.tight_layout()
-    plt.savefig("naive_bayes_comparison.png", dpi=150)
-    plt.show()
+    save_figure("naive_bayes_comparison.png", dpi=150)
 
 
 # ─────────────────────────────────────────────

@@ -63,6 +63,8 @@ from sklearn.metrics import (
     adjusted_rand_score
 )
 
+from deepdraft.core import fast_or, save_figure
+
 
 # ─────────────────────────────────────────────
 # DATA
@@ -109,7 +111,7 @@ def generate_cluster_data(
 GMM_CONFIG = {
     "n_components":    4,       # Placeholder: select via BIC/AIC
     "covariance_type": "full",  # Placeholder: 'full', 'tied', 'diag', 'spherical'
-    "n_init":          5,       # Placeholder: 5–10 random restarts
+    "n_init":          fast_or(5, 1),  # Placeholder: 5–10 random restarts
     "max_iter":        200,
     "tol":             1e-3,
     "reg_covar":       1e-6,    # Placeholder: increase to 1e-3 for small samples
@@ -129,7 +131,7 @@ def build_gmm(config: dict = None) -> GaussianMixture:
 # ─────────────────────────────────────────────
 
 def select_n_components(X_scaled: np.ndarray,
-                         k_range: range = range(2, 12)) -> int:
+                         k_range: range = range(2, fast_or(12, 6))) -> int:
     """
     Select optimal K via BIC and AIC.
 
@@ -143,7 +145,7 @@ def select_n_components(X_scaled: np.ndarray,
 
     for k in k_range:
         gm = GaussianMixture(n_components=k, covariance_type="full",
-                              n_init=3, random_state=42)
+                              n_init=fast_or(3, 1), random_state=42)
         gm.fit(X_scaled)
         bics.append(gm.bic(X_scaled))
         aics.append(gm.aic(X_scaled))
@@ -164,8 +166,7 @@ def select_n_components(X_scaled: np.ndarray,
     plt.title("GMM — Component Count Selection (BIC / AIC)")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("gmm_bic_aic.png", dpi=150)
-    plt.show()
+    save_figure("gmm_bic_aic.png", dpi=150)
 
     print(f"\n  Best K (BIC): {best_k_bic}  |  Best K (AIC): {best_k_aic}")
     return best_k_bic
@@ -269,8 +270,7 @@ def plot_clusters_2d(model: GaussianMixture, X: np.ndarray,
     plt.title("GMM — Cluster Assignments (PCA 2D)")
     plt.legend(loc="best", fontsize=8)
     plt.tight_layout()
-    plt.savefig("gmm_clusters.png", dpi=150)
-    plt.show()
+    save_figure("gmm_clusters.png", dpi=150)
 
 
 def plot_anomaly_scores(model: GaussianMixture, scaler: StandardScaler,
@@ -287,8 +287,7 @@ def plot_anomaly_scores(model: GaussianMixture, scaler: StandardScaler,
     plt.title("GMM — Anomaly Score Distribution")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("gmm_scores.png", dpi=150)
-    plt.show()
+    save_figure("gmm_scores.png", dpi=150)
 
 
 def plot_responsibilities(model: GaussianMixture, scaler: StandardScaler,
@@ -312,8 +311,7 @@ def plot_responsibilities(model: GaussianMixture, scaler: StandardScaler,
     ax.set_title("GMM — Soft Component Responsibilities")
     ax.legend(loc="upper right", fontsize=7, ncol=model.n_components)
     plt.tight_layout()
-    plt.savefig("gmm_responsibilities.png", dpi=150)
-    plt.show()
+    save_figure("gmm_responsibilities.png", dpi=150)
 
 
 # ─────────────────────────────────────────────

@@ -59,6 +59,8 @@ from itertools import combinations_with_replacement
 from dataclasses import dataclass, field
 from typing import Callable
 
+from deepdraft.core import save_figure
+
 # ─────────────────────────────────────────────
 # CONFIG
 # ─────────────────────────────────────────────
@@ -470,8 +472,7 @@ def plot_sindy_results(
 
     plt.tight_layout()
     fname = f"sindy_{system_name.lower().replace(' ', '_')}.png"
-    plt.savefig(fname, dpi=150)
-    plt.show()
+    save_figure(fname, dpi=150)
     print(f"Saved: {fname}")
 
 
@@ -489,8 +490,7 @@ def plot_coefficient_heatmap(model: SINDy, state_names: list = None):
     plt.colorbar(im, ax=ax, label="|coefficient|")
     ax.set_title("SINDy Coefficient Matrix |Ξ|")
     plt.tight_layout()
-    plt.savefig("sindy_coefficients.png", dpi=150)
-    plt.show()
+    save_figure("sindy_coefficients.png", dpi=150)
     print("Saved: sindy_coefficients.png")
 
 
@@ -529,8 +529,7 @@ def threshold_sweep(
     axes[1].grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plt.savefig("sindy_threshold_sweep.png", dpi=150)
-    plt.show()
+    save_figure("sindy_threshold_sweep.png", dpi=150)
     return results
 
 

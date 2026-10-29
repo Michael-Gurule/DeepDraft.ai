@@ -74,6 +74,8 @@ import matplotlib.patches as mpatches
 from dataclasses import dataclass, field
 from typing import Callable
 
+from deepdraft.core import save_figure
+
 
 # ─────────────────────────────────────────────
 # TOOL REGISTRY
@@ -602,8 +604,7 @@ def plot_trace(trace: AgentTrace, filename: str = "react_trace.png") -> None:
         fontsize=10, pad=10,
     )
     plt.tight_layout()
-    plt.savefig(filename, dpi=150)
-    plt.show()
+    save_figure(filename, dpi=150)
 
 
 def plot_evaluation_summary(eval_results: dict) -> None:
@@ -630,8 +631,7 @@ def plot_evaluation_summary(eval_results: dict) -> None:
 
     plt.suptitle("ReAct Agent — Evaluation Summary")
     plt.tight_layout()
-    plt.savefig("react_evaluation.png", dpi=150)
-    plt.show()
+    save_figure("react_evaluation.png", dpi=150)
 
 
 # ─────────────────────────────────────────────

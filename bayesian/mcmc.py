@@ -56,12 +56,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import multivariate_normal, norm, gamma as sp_gamma
 
+from deepdraft.core import fast_or, save_figure
+
 # ─────────────────────────────────────────────
 # CONFIG
 # ─────────────────────────────────────────────
 CONFIG = {
-    "n_samples":    5000,    # # Placeholder:
-    "n_warmup":     1000,    # # Placeholder: burn-in samples to discard
+    "n_samples":    fast_or(5000, 300),  # # Placeholder:
+    "n_warmup":     fast_or(1000, 100),  # # Placeholder: burn-in samples to discard
     "n_chains":     4,       # # Placeholder: for R-hat convergence check
     "mh_std":       0.3,     # # Placeholder: MH random-walk proposal std
     "hmc_step":     0.05,    # # Placeholder: leapfrog step size
@@ -359,11 +361,11 @@ def bayesian_regression_demo(seed: int = 42) -> dict:
     init = np.zeros(3)   # [intercept, slope, log_sigma]
 
     print("MH for Bayesian Linear Regression...")
-    mh_result = metropolis_hastings(log_p, init, n_samples=3000, n_warmup=1000,
+    mh_result = metropolis_hastings(log_p, init, n_samples=fast_or(3000, 300), n_warmup=fast_or(1000, 100),
                                      proposal_std=0.15, seed=seed)
 
     print("HMC for Bayesian Linear Regression...")
-    hmc_result = hamiltonian_monte_carlo(log_p, init, n_samples=2000, n_warmup=500,
+    hmc_result = hamiltonian_monte_carlo(log_p, init, n_samples=fast_or(2000, 200), n_warmup=fast_or(500, 50),
                                           step_size=0.02, n_leapfrog=15, seed=seed)
 
     return {"mh": mh_result, "hmc": hmc_result, "X": X, "y": y}
@@ -398,8 +400,7 @@ def plot_2d_samples(samples_dict: dict, log_prob_fn, title: str, xlim=(-5, 5), y
 
     plt.tight_layout()
     fname = f"mcmc_{title.lower().replace(' ', '_').replace('/', '')}.png"
-    plt.savefig(fname, dpi=150)
-    plt.show()
+    save_figure(fname, dpi=150)
     print(f"Saved: {fname}")
 
 
@@ -423,8 +424,7 @@ def plot_trace(samples: np.ndarray, param_names: list = None, title: str = ""):
     axes[-1, 0].set_xlabel("Iteration")
     plt.tight_layout()
     fname = f"mcmc_trace_{title.lower().replace(' ', '_')}.png"
-    plt.savefig(fname, dpi=150)
-    plt.show()
+    save_figure(fname, dpi=150)
     print(f"Saved: {fname}")
 
 
@@ -456,8 +456,7 @@ def plot_regression_posterior(result: dict):
         ax.legend(fontsize=9); ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plt.savefig("mcmc_regression_posterior.png", dpi=150)
-    plt.show()
+    save_figure("mcmc_regression_posterior.png", dpi=150)
     print("Saved: mcmc_regression_posterior.png")
 
 
@@ -509,7 +508,7 @@ def main():
     chains = []
     for s in range(CONFIG["n_chains"]):
         init_s = np.random.normal(0, 2, 2)
-        c = metropolis_hastings(banana_log_prob, init_s, 2000, 500,
+        c = metropolis_hastings(banana_log_prob, init_s, fast_or(2000, 200), fast_or(500, 50),
                                  proposal_std=CONFIG["mh_std"], seed=CONFIG["seed"] + s)
         chains.append(c["samples"])
     rhat_vals = r_hat(chains)

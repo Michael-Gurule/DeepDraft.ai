@@ -56,6 +56,8 @@ import matplotlib.pyplot as plt
 from scipy.optimize import minimize
 from sklearn.covariance import LedoitWolf
 
+from deepdraft.core import save_figure
+
 
 # ─────────────────────────────────────────────
 # DATA
@@ -364,8 +366,7 @@ def plot_efficient_frontier(frontier_df: pd.DataFrame,
     plt.title("Markowitz — Efficient Frontier")
     plt.legend(fontsize=8)
     plt.tight_layout()
-    plt.savefig("portfolio_frontier.png", dpi=150)
-    plt.show()
+    save_figure("portfolio_frontier.png", dpi=150)
 
 
 def plot_portfolio_weights(weights_dict: dict) -> None:
@@ -390,8 +391,7 @@ def plot_portfolio_weights(weights_dict: dict) -> None:
 
     plt.suptitle("Portfolio Allocations", y=1.02)
     plt.tight_layout()
-    plt.savefig("portfolio_weights.png", dpi=150)
-    plt.show()
+    save_figure("portfolio_weights.png", dpi=150)
 
 
 def plot_risk_contributions(w: np.ndarray, cov: np.ndarray,
@@ -416,8 +416,7 @@ def plot_risk_contributions(w: np.ndarray, cov: np.ndarray,
     plt.ylabel("Share of portfolio variance (%)")
     plt.title("Portfolio — Risk Contributions")
     plt.tight_layout()
-    plt.savefig("portfolio_risk_contrib.png", dpi=150)
-    plt.show()
+    save_figure("portfolio_risk_contrib.png", dpi=150)
 
 
 # ─────────────────────────────────────────────

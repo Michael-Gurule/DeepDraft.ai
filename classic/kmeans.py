@@ -55,6 +55,8 @@ from sklearn.metrics import (
 from sklearn.pipeline import Pipeline
 from sklearn.datasets import make_blobs, make_moons
 
+from deepdraft.core import save_figure
+
 
 # ─────────────────────────────────────────────
 # DATA
@@ -197,8 +199,7 @@ def find_optimal_k(X: np.ndarray, k_range: range = range(2, 11)) -> int:
 
     plt.suptitle("K Selection Analysis")
     plt.tight_layout()
-    plt.savefig("kmeans_k_selection.png", dpi=150)
-    plt.show()
+    save_figure("kmeans_k_selection.png", dpi=150)
 
     print(f"\nOptimal K by silhouette: {best_k}  (score: {max(silhouettes):.4f})")
     return best_k
@@ -296,8 +297,7 @@ def plot_clusters_2d(pipeline: Pipeline, X: np.ndarray,
 
     plt.suptitle("K-Means Cluster Visualization")
     plt.tight_layout()
-    plt.savefig("kmeans_clusters.png", dpi=150)
-    plt.show()
+    save_figure("kmeans_clusters.png", dpi=150)
 
 
 def plot_silhouette_analysis(pipeline: Pipeline, X: np.ndarray) -> None:
@@ -337,8 +337,7 @@ def plot_silhouette_analysis(pipeline: Pipeline, X: np.ndarray) -> None:
     ax.set_title(f"Silhouette Analysis (K={k})")
     ax.legend(loc="upper right")
     plt.tight_layout()
-    plt.savefig("kmeans_silhouette.png", dpi=150)
-    plt.show()
+    save_figure("kmeans_silhouette.png", dpi=150)
 
 
 # ─────────────────────────────────────────────

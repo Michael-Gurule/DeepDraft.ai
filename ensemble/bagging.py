@@ -55,6 +55,8 @@ from sklearn.metrics import (
 )
 from sklearn.datasets import make_classification, make_regression
 
+from deepdraft.core import fast_or, save_figure
+
 
 # ─────────────────────────────────────────────
 # DATA
@@ -229,8 +231,7 @@ def compare_base_learners(X_train: np.ndarray, y_train: np.ndarray,
     plt.ylabel("Test Accuracy")
     plt.title("Bagging — Base Learner Comparison")
     plt.tight_layout()
-    plt.savefig("bagging_base_learner_comparison.png", dpi=150)
-    plt.show()
+    save_figure("bagging_base_learner_comparison.png", dpi=150)
 
 
 # ─────────────────────────────────────────────
@@ -254,9 +255,9 @@ def tune_bagging(X_train: np.ndarray, y_train: np.ndarray) -> BaggingClassifier:
         best fitted BaggingClassifier
     """
     param_grid = {
-        "n_estimators": [20, 50, 100],
-        "max_samples":  [0.5, 0.7, 1.0],
-        "max_features": [0.5, 0.7, 1.0],
+        "n_estimators": fast_or([20, 50, 100], [10]),
+        "max_samples":  fast_or([0.5, 0.7, 1.0], [0.7, 1.0]),
+        "max_features": fast_or([0.5, 0.7, 1.0], [1.0]),
     }
     bag = BaggingClassifier(
         estimator=DecisionTreeClassifier(max_depth=None),
@@ -307,8 +308,7 @@ def plot_oob_vs_n_estimators(X_train: np.ndarray, y_train: np.ndarray,
     plt.ylabel("OOB Score")
     plt.title("Bagging — OOB Score vs. n_estimators")
     plt.tight_layout()
-    plt.savefig("bagging_oob_curve.png", dpi=150)
-    plt.show()
+    save_figure("bagging_oob_curve.png", dpi=150)
 
 
 def plot_confusion_matrix(model, X_test: np.ndarray, y_test: np.ndarray) -> None:
@@ -317,8 +317,7 @@ def plot_confusion_matrix(model, X_test: np.ndarray, y_test: np.ndarray) -> None
     ConfusionMatrixDisplay(confusion_matrix(y_test, y_pred)).plot(cmap="Blues")
     plt.title("Bagging — Confusion Matrix")
     plt.tight_layout()
-    plt.savefig("bagging_confusion.png", dpi=150)
-    plt.show()
+    save_figure("bagging_confusion.png", dpi=150)
 
 
 # ─────────────────────────────────────────────
@@ -351,7 +350,7 @@ def main():
     evaluate_classifier(best_bag, X_test, y_test)
 
     # Visualizations
-    plot_oob_vs_n_estimators(X_train, y_train)
+    plot_oob_vs_n_estimators(X_train, y_train, max_n=fast_or(100, 20))
     plot_confusion_matrix(bag, X_test, y_test)
 
     # ── Regression ──────────────────────────────────────────────────

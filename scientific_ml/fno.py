@@ -55,6 +55,8 @@ from torch.utils.data import DataLoader, TensorDataset
 import matplotlib.pyplot as plt
 from sklearn.metrics import r2_score
 
+from deepdraft.core import fast_or, save_figure
+
 DEVICE = (
     "cuda" if torch.cuda.is_available()
     else "mps" if torch.backends.mps.is_available()
@@ -68,9 +70,9 @@ CONFIG = {
     "lr":           1e-3,    # # Placeholder:
     "weight_decay": 1e-4,    # # Placeholder:
     "batch_size":   20,      # # Placeholder:
-    "n_epochs":     100,     # # Placeholder:
-    "n_train":      800,     # # Placeholder:
-    "n_test":       200,     # # Placeholder:
+    "n_epochs":     fast_or(100, 2),  # # Placeholder:
+    "n_train":      fast_or(800, 40),  # # Placeholder:
+    "n_test":       fast_or(200, 20),  # # Placeholder:
     "n_grid":       64,      # # Placeholder: spatial resolution
     "seed":         42,
 }
@@ -423,7 +425,7 @@ def modes_ablation(data: dict, cfg: dict, modes_list: list = None) -> dict:
     results = {}
     for nm in modes_list:
         print(f"\n  n_modes={nm}")
-        _, history = train_fno(data, {**cfg, "n_modes": nm, "n_epochs": 50})
+        _, history = train_fno(data, {**cfg, "n_modes": nm, "n_epochs": fast_or(50, 1)})
         results[nm] = history["test_errors"][-1]
         print(f"    Final test Rel-L2: {results[nm]:.5f}")
     return results
@@ -453,8 +455,7 @@ def plot_fno_results(model: FNO1d, data: dict, n_examples: int = 4):
             ax.legend(fontsize=9)
         ax.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.savefig("fno_predictions.png", dpi=150)
-    plt.show()
+    save_figure("fno_predictions.png", dpi=150)
     print("Saved: fno_predictions.png")
 
 
@@ -468,8 +469,7 @@ def plot_training_history(history: dict):
     axes[1].set_xlabel("Epoch"); axes[1].set_ylabel("Relative L2 (log)")
     axes[1].set_title("Test Relative L2 Error"); axes[1].grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.savefig("fno_training.png", dpi=150)
-    plt.show()
+    save_figure("fno_training.png", dpi=150)
     print("Saved: fno_training.png")
 
 
@@ -506,7 +506,7 @@ def main():
 
     # ── n_modes ablation ───────────────────────────────────────────
     print("\n=== n_modes Ablation ===")
-    ablation = modes_ablation(data, CONFIG, modes_list=[4, 8, 16, 32])
+    ablation = modes_ablation(data, CONFIG, modes_list=fast_or([4, 8, 16, 32], [4, 8]))
     fig, ax = plt.subplots(figsize=(7, 4))
     ax.bar([str(k) for k in ablation.keys()], list(ablation.values()),
            color="steelblue", edgecolor="white")
@@ -514,8 +514,7 @@ def main():
     ax.set_title("FNO — n_modes Ablation")
     ax.grid(True, alpha=0.3, axis="y")
     plt.tight_layout()
-    plt.savefig("fno_modes_ablation.png", dpi=150)
-    plt.show()
+    save_figure("fno_modes_ablation.png", dpi=150)
 
     final_err = history["test_errors"][-1]
     print(f"\nFinal test Relative L2 error: {final_err:.5f}")

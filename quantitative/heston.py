@@ -62,6 +62,8 @@ from scipy.stats import norm
 from scipy.integrate import quad
 from scipy.optimize import minimize, differential_evolution
 
+from deepdraft.core import fast_or, save_figure
+
 # ─────────────────────────────────────────────
 # CONFIG
 # ─────────────────────────────────────────────
@@ -76,8 +78,8 @@ CONFIG = {
     "r":     0.05,    # # Placeholder: risk-free rate
     "q":     0.0,     # # Placeholder: dividend yield
     # Monte Carlo
-    "n_paths": 50_000,   # # Placeholder:
-    "n_steps": 252,      # # Placeholder: time steps per year
+    "n_paths": fast_or(50_000, 2_000),  # # Placeholder:
+    "n_steps": fast_or(252, 50),  # # Placeholder: time steps per year
     "seed":    42,
 }
 
@@ -317,12 +319,12 @@ def calibrate_heston(
 
     print("Calibrating Heston model...")
     if method == "differential_evolution":
-        result = differential_evolution(objective, bounds, seed=42, maxiter=100,
-                                         tol=1e-6, popsize=10, workers=1)
+        result = differential_evolution(objective, bounds, seed=42, maxiter=fast_or(100, 1),
+                                         tol=1e-6, popsize=fast_or(10, 2), workers=1)
     else:
         x0 = [0.04, 2.0, 0.04, 0.3, -0.7]
         result = minimize(objective, x0, method=method,
-                          bounds=bounds, options={"maxiter": 1000})
+                          bounds=bounds, options={"maxiter": fast_or(1000, 5)})
 
     V0, kappa, theta, xi, rho = result.x
     print(f"Calibrated: V0={V0:.4f} κ={kappa:.4f} θ={theta:.4f} ξ={xi:.4f} ρ={rho:.4f}")
@@ -338,8 +340,8 @@ def generate_synthetic_market(cfg: dict) -> dict:
     Generate synthetic market prices using a reference Heston model.
     Used to test calibration.
     """
-    strikes    = np.array([80, 90, 95, 100, 105, 110, 120])   # # Placeholder:
-    maturities = np.array([0.25, 0.5, 1.0])                    # # Placeholder:
+    strikes    = np.array(fast_or([80, 90, 95, 100, 105, 110, 120], [90, 100, 110]))  # # Placeholder:
+    maturities = np.array(fast_or([0.25, 0.5, 1.0], [0.5]))                         # # Placeholder:
     all_prices, all_K, all_T = [], [], []
     for T in maturities:
         for K in strikes:
@@ -360,8 +362,8 @@ def generate_synthetic_market(cfg: dict) -> dict:
 
 def plot_vol_surface(cfg: dict):
     """3D implied volatility surface."""
-    strikes    = np.linspace(70, 130, 20)
-    maturities = np.linspace(0.1, 2.0, 10)
+    strikes    = np.linspace(70, 130, fast_or(20, 4))
+    maturities = np.linspace(0.1, 2.0, fast_or(10, 2))
     iv = heston_vol_surface(
         cfg["S0"], cfg["V0"], cfg["kappa"], cfg["theta"],
         cfg["xi"], cfg["rho"], cfg["r"], cfg["q"],
@@ -376,14 +378,13 @@ def plot_vol_surface(cfg: dict):
     ax.set_xlabel("Strike"); ax.set_ylabel("Maturity (yr)"); ax.set_zlabel("IV (%)")
     ax.set_title("Heston Implied Volatility Surface")
     plt.tight_layout()
-    plt.savefig("heston_vol_surface.png", dpi=150)
-    plt.show()
+    save_figure("heston_vol_surface.png", dpi=150)
     print("Saved: heston_vol_surface.png")
 
 
 def plot_vol_smile(cfg: dict):
     """Implied vol smile for different maturities — compares Heston vs BS."""
-    strikes  = np.linspace(70, 130, 30)
+    strikes  = np.linspace(70, 130, fast_or(30, 5))
     maturities = [0.25, 0.5, 1.0, 2.0]
     fig, ax = plt.subplots(figsize=(9, 5))
     colors = plt.cm.viridis(np.linspace(0, 1, len(maturities)))
@@ -409,8 +410,7 @@ def plot_vol_smile(cfg: dict):
     ax.set_title("Heston Model — Volatility Smile")
     ax.legend(); ax.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.savefig("heston_vol_smile.png", dpi=150)
-    plt.show()
+    save_figure("heston_vol_smile.png", dpi=150)
     print("Saved: heston_vol_smile.png")
 
 
@@ -434,14 +434,13 @@ def plot_sample_paths(cfg: dict, T: float = 1.0):
                     label=f"Long-run vol = {np.sqrt(cfg['theta'])*100:.0f}%")
     axes[1].legend(); axes[1].grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.savefig("heston_paths.png", dpi=150)
-    plt.show()
+    save_figure("heston_paths.png", dpi=150)
     print("Saved: heston_paths.png")
 
 
 def plot_analytic_vs_mc(cfg: dict):
     """Validate analytic formula against Monte Carlo prices."""
-    strikes = np.linspace(80, 120, 15)
+    strikes = np.linspace(80, 120, fast_or(15, 4))
     T = 1.0
     analytic, mc_prices, mc_errors = [], [], []
 
@@ -472,8 +471,7 @@ def plot_analytic_vs_mc(cfg: dict):
     axes[1].grid(True, alpha=0.3, axis="y")
 
     plt.tight_layout()
-    plt.savefig("heston_analytic_vs_mc.png", dpi=150)
-    plt.show()
+    save_figure("heston_analytic_vs_mc.png", dpi=150)
     print("Saved: heston_analytic_vs_mc.png")
 
 
