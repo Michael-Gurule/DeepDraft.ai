@@ -216,35 +216,45 @@ def tune_adaboost(X_train: np.ndarray, y_train: np.ndarray) -> AdaBoostClassifie
 # ─────────────────────────────────────────────
 
 def plot_staged_accuracy(model: AdaBoostClassifier,
-                          X_test: np.ndarray, y_test: np.ndarray) -> None:
+                          X_train: np.ndarray, y_train: np.ndarray,
+                          X_val: np.ndarray, y_val: np.ndarray) -> int:
     """
-    Plot classification accuracy as a function of boosting stage.
+    Plot classification error as a function of boosting stage.
 
-    This shows how accuracy improves as more weak learners are added.
-    Plateauing test accuracy suggests adding more estimators won't help.
-    Rising test error (overfitting) is unusual in AdaBoost with stumps.
+    This shows how error falls as more weak learners are added. The model is
+    fit on X_train and scored stage by stage on a held-out VALIDATION set, so
+    the chosen n_estimators never sees the test data. Choosing it on the test
+    set would make the reported test score optimistically biased.
 
-    Fine-tuning tip: the point where test accuracy stops improving is the
-    optimal n_estimators — retrain with that value.
+    Plateauing validation error suggests adding more estimators won't help.
+    Rising validation error (overfitting) is unusual in AdaBoost with stumps.
+
+    Fine-tuning tip: the point where validation error stops improving is the
+    optimal n_estimators. Retrain with that value, then evaluate on test once.
+
+    Returns:
+        the n_estimators with the lowest validation error
     """
-    test_errors = [
-        1.0 - accuracy_score(y_test, y_pred)
-        for y_pred in model.staged_predict(X_test)
-    ]
+    model.fit(X_train, y_train)
+    train_errors = [1.0 - accuracy_score(y_train, p) for p in model.staged_predict(X_train)]
+    val_errors = [1.0 - accuracy_score(y_val, p) for p in model.staged_predict(X_val)]
+
+    stages = range(1, len(val_errors) + 1)
+    best_n = int(np.argmin(val_errors)) + 1
 
     plt.figure(figsize=(8, 4))
-    plt.plot(range(1, len(test_errors) + 1), test_errors,
-             label="Test Error", color="tomato")
-    best_n = np.argmin(test_errors) + 1
+    plt.plot(stages, train_errors, label="Train Error", color="steelblue")
+    plt.plot(stages, val_errors, label="Validation Error", color="tomato")
     plt.axvline(best_n, color="gray", linestyle="--",
-                label=f"Best n={best_n} (err={min(test_errors):.4f})")
+                label=f"Best n={best_n} (val err={min(val_errors):.4f})")
     plt.xlabel("Boosting Stage")
     plt.ylabel("Error Rate")
-    plt.title("AdaBoost — Staged Test Error")
+    plt.title("AdaBoost — Staged Train and Validation Error")
     plt.legend()
     plt.tight_layout()
     save_figure("adaboost_staged_error.png", dpi=150)
-    print(f"Optimal n_estimators from staged error: {best_n}")
+    print(f"Optimal n_estimators from validation error: {best_n}")
+    return best_n
 
 
 def plot_estimator_weights(model: AdaBoostClassifier) -> None:
@@ -364,7 +374,16 @@ def main():
     evaluate_classifier(best_ada, X_test, y_test)
 
     # Visualizations
-    plot_staged_accuracy(ada, X_test, y_test)
+    # Choose n_estimators on a validation split carved from the training data.
+    X_fit, X_val, y_fit, y_val = train_test_split(
+        X_train, y_train, test_size=0.25, random_state=42, stratify=y_train
+    )
+    best_n = plot_staged_accuracy(AdaBoostClassifier(**CLASSIFIER_CONFIG),
+                                  X_fit, y_fit, X_val, y_val)
+    ada_tuned = AdaBoostClassifier(**{**CLASSIFIER_CONFIG, "n_estimators": best_n})
+    ada_tuned.fit(X_train, y_train)
+    print(f"\nAdaBoost with n_estimators={best_n} — Test Metrics:")
+    evaluate_classifier(ada_tuned, X_test, y_test)
     plot_estimator_weights(ada)
     plot_confusion_matrix(ada, X_test, y_test)
 

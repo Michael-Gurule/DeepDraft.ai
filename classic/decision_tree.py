@@ -52,7 +52,7 @@ from sklearn.metrics import (
 from sklearn.datasets import make_classification, make_regression
 from sklearn.inspection import permutation_importance
 
-from deepdraft.core import save_figure
+from deepdraft.core import fast_or, save_figure
 
 
 # ─────────────────────────────────────────────
@@ -187,50 +187,58 @@ def cross_validate(model, X: np.ndarray, y: np.ndarray, cv: int = 5, scoring: st
 # PRUNING
 # ─────────────────────────────────────────────
 
-def find_optimal_ccp_alpha(X_train, y_train, X_test, y_test) -> float:
+def find_optimal_ccp_alpha(X_train, y_train, cv: int = 5) -> float:
     """
-    Cost-complexity pruning path to find the optimal ccp_alpha.
+    Choose the cost-complexity pruning strength ccp_alpha by cross-validation.
 
     How it works:
-        - Train a full tree (alpha=0), then compute the pruning path.
-        - For each alpha, retrain a pruned tree and measure test accuracy.
-        - Pick the alpha that maximizes test accuracy while reducing complexity.
+        - Grow a full tree (alpha=0) on the training data and compute its
+          pruning path: the sequence of alphas at which subtrees get pruned.
+        - For each alpha, estimate accuracy with k-fold cross-validation on the
+          TRAINING data only.
+        - Pick the alpha with the best cross-validated accuracy.
 
-    Fine-tuning tip: the optimal alpha often lies near the "elbow" where test
-    accuracy stops improving as alpha increases.
+    The test set is never used here. Choosing alpha by test accuracy would make
+    the reported test score optimistically biased, because the test data would
+    have helped pick the model.
+
+    Fine-tuning tip: the train-accuracy curve keeps falling as alpha grows; the
+    CV curve usually rises, plateaus, then falls once pruning removes useful
+    splits. The best alpha sits near the top of the CV curve.
 
     Args:
         X_train, y_train: training data
-        X_test, y_test:   test data
+        cv:               number of cross-validation folds
 
     Returns:
-        the alpha value with best test accuracy
+        the alpha with the best cross-validated accuracy
     """
     clf = DecisionTreeClassifier(random_state=42)
     path = clf.cost_complexity_pruning_path(X_train, y_train)
-    alphas = path.ccp_alphas[::5]  # sample every 5th alpha for speed
+    # The last alpha prunes the tree to a single node; skip it. Sample the rest
+    # for speed.
+    alphas = path.ccp_alphas[:-1][::fast_or(5, 15)]
 
-    train_scores, test_scores = [], []
+    train_scores, cv_scores = [], []
     for alpha in alphas:
-        t = DecisionTreeClassifier(ccp_alpha=alpha, random_state=42)
-        t.fit(X_train, y_train)
-        train_scores.append(t.score(X_train, y_train))
-        test_scores.append(t.score(X_test, y_test))
+        tree = DecisionTreeClassifier(ccp_alpha=alpha, random_state=42)
+        cv_scores.append(cross_val_score(tree, X_train, y_train, cv=cv).mean())
+        train_scores.append(tree.fit(X_train, y_train).score(X_train, y_train))
 
-    best_alpha = alphas[np.argmax(test_scores)]
+    best_alpha = alphas[int(np.argmax(cv_scores))]
 
     plt.figure(figsize=(8, 4))
     plt.plot(alphas, train_scores, marker="o", label="Train accuracy", markersize=3)
-    plt.plot(alphas, test_scores, marker="o", label="Test accuracy", markersize=3)
+    plt.plot(alphas, cv_scores, marker="o", label=f"{cv}-fold CV accuracy", markersize=3)
     plt.axvline(best_alpha, color="red", linestyle="--", label=f"Best alpha={best_alpha:.5f}")
     plt.xlabel("ccp_alpha")
     plt.ylabel("Accuracy")
-    plt.title("Cost-Complexity Pruning Path")
+    plt.title("Cost-Complexity Pruning Path (selected by cross-validation)")
     plt.legend()
     plt.tight_layout()
     save_figure("decision_tree_pruning.png", dpi=150)
 
-    print(f"Optimal ccp_alpha: {best_alpha:.5f}  (test accuracy: {max(test_scores):.4f})")
+    print(f"Optimal ccp_alpha: {best_alpha:.5f}  (CV accuracy: {max(cv_scores):.4f})")
     return best_alpha
 
 
@@ -366,7 +374,7 @@ def main():
 
     # Post-pruning: find optimal ccp_alpha
     print("\n=== Pruning Analysis ===")
-    best_alpha = find_optimal_ccp_alpha(X_train, y_train, X_test, y_test)
+    best_alpha = find_optimal_ccp_alpha(X_train, y_train)   # uses training data only
     pruned_clf = DecisionTreeClassifier(ccp_alpha=best_alpha, random_state=42)
     pruned_clf.fit(X_train, y_train)
     print("\nPruned Tree — Test Metrics:")

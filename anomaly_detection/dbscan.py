@@ -60,10 +60,11 @@ from sklearn.neighbors import NearestNeighbors
 from sklearn.datasets import make_blobs
 from sklearn.metrics import (
     roc_auc_score, average_precision_score, confusion_matrix,
-    ConfusionMatrixDisplay
+    ConfusionMatrixDisplay, f1_score
 )
 
 from deepdraft.core import save_figure
+from sklearn.model_selection import train_test_split
 
 
 # ─────────────────────────────────────────────
@@ -273,16 +274,26 @@ def evaluate(labels: np.ndarray, scores: np.ndarray, y: np.ndarray) -> dict:
 # ─────────────────────────────────────────────
 
 def eps_sweep(X_scaled: np.ndarray, y: np.ndarray,
-              eps_range: np.ndarray = None, min_samples: int = 10) -> None:
+              eps_range: np.ndarray = None, min_samples: int = 10) -> float:
     """
-    Sweep eps values and plot ROC-AUC + noise fraction.
+    Sweep eps values and plot F1, ROC-AUC, and noise fraction.
 
-    Use this to select eps when kd-distance plot is ambiguous.
+    Use this to select eps when kd-distance plot is ambiguous. It needs labels,
+    so run it on a labeled TUNING sample, not on the data you report results
+    for: the eps that scores best on a sample always looks best on that sample.
+
+    eps is chosen by the F1 of DBSCAN's own output, the noise label. ROC-AUC
+    only rates the continuous distance score, which can rank anomalies
+    perfectly even when eps is so small that almost every point is noise.
+
+    Returns:
+        the eps with the highest noise-label F1 on the tuning sample
     """
     if eps_range is None:
         eps_range = np.linspace(0.1, 2.0, 30)
 
     aucs        = []
+    f1s         = []
     noise_fracs = []
 
     for eps in eps_range:
@@ -294,13 +305,15 @@ def eps_sweep(X_scaled: np.ndarray, y: np.ndarray,
         except Exception:
             auc = 0.5
         aucs.append(auc)
+        f1s.append(f1_score(y, (labels == -1).astype(int), zero_division=0))
         noise_fracs.append((labels == -1).mean())
 
     fig, ax1 = plt.subplots(figsize=(10, 4))
+    ax1.plot(eps_range, f1s, color="seagreen", label="F1 (noise = anomaly)")
     ax1.plot(eps_range, aucs, color="steelblue", label="ROC-AUC")
     ax1.set_xlabel("eps")
-    ax1.set_ylabel("ROC-AUC", color="steelblue")
-    ax1.set_ylim(0.4, 1.05)
+    ax1.set_ylabel("Score")
+    ax1.set_ylim(-0.05, 1.05)
 
     ax2 = ax1.twinx()
     ax2.plot(eps_range, noise_fracs, color="tomato", linestyle="--", label="Noise Fraction")
@@ -313,8 +326,9 @@ def eps_sweep(X_scaled: np.ndarray, y: np.ndarray,
     plt.tight_layout()
     save_figure("dbscan_eps_sweep.png", dpi=150)
 
-    best_eps = eps_range[np.argmax(aucs)]
-    print(f"Best eps by ROC-AUC: {best_eps:.3f}  (AUC={max(aucs):.4f})")
+    best_eps = float(eps_range[np.argmax(f1s)])
+    print(f"Best eps by tuning F1: {best_eps:.3f}  (F1={max(f1s):.4f})")
+    return best_eps
 
 
 # ─────────────────────────────────────────────
@@ -384,31 +398,43 @@ def main():
     X, y = generate_anomaly_data(n_normal=1000, n_anomalies=50)
     print(f"Dataset: {X.shape[0]} samples ({y.sum()} anomalies) | {X.shape[1]} features")
 
-    # Scale
+    # Scale. The scaler uses no labels, so fitting it on all rows leaks nothing.
     scaler   = StandardScaler()
     X_scaled = scaler.fit_transform(X)
 
-    # Visualize k-distance curve to choose eps
-    suggested_eps = kdistance_plot(X_scaled)
+    # DBSCAN labels the points it is fit on and has no predict() for new
+    # points. To tune eps with labels and still report an honest score, split
+    # the data into two equal halves: tune on one, refit and report on the
+    # other. Equal sizes keep the point density, and so the meaning of eps
+    # and min_samples, comparable between the halves.
+    X_tune, X_test, y_tune, y_test = train_test_split(
+        X_scaled, y, test_size=0.5, random_state=42, stratify=y
+    )
 
-    # Fit DBSCAN
+    # Unsupervised choice: the k-distance curve needs no labels
+    suggested_eps = kdistance_plot(X_test)
+
     # Placeholder: update eps after reading k-distance plot
     config = {**DBSCAN_CONFIG, "eps": suggested_eps}
     model  = DBSCAN(**config)
-    labels = model.fit_predict(X_scaled)
+    labels = model.fit_predict(X_test)
+    scores = anomaly_scores_from_labels(labels, X_test, model)
 
-    scores = anomaly_scores_from_labels(labels, X_scaled, model)
+    print("\nTest half, eps from the k-distance plot:")
+    evaluate(labels, scores, y_test)
 
-    print("\nEvaluation:")
-    evaluate(labels, scores, y)
+    # Supervised choice: sweep eps on the labeled tuning half, then refit on
+    # the test half with that eps
+    best_eps = eps_sweep(X_tune, y_tune, min_samples=config["min_samples"])
+    tuned = DBSCAN(**{**config, "eps": best_eps})
+    tuned_labels = tuned.fit_predict(X_test)
+    print("\nTest half, eps tuned on the tuning half:")
+    evaluate(tuned_labels, anomaly_scores_from_labels(tuned_labels, X_test, tuned), y_test)
 
-    # Sweep eps to find optimal
-    eps_sweep(X_scaled, y)
-
-    # Visualizations
-    plot_clusters_2d(X, labels, y)
-    plot_score_distribution(scores, y)
-    plot_confusion_matrix(labels, y)
+    # Visualizations (test half, k-distance eps)
+    plot_clusters_2d(X_test, labels, y_test)
+    plot_score_distribution(scores, y_test)
+    plot_confusion_matrix(labels, y_test)
 
 
 if __name__ == "__main__":

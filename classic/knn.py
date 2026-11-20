@@ -239,51 +239,57 @@ def tune_k(X_train: np.ndarray, y_train: np.ndarray) -> Pipeline:
 # ─────────────────────────────────────────────
 
 def plot_k_selection_curve(X_train: np.ndarray, y_train: np.ndarray,
-                            X_test: np.ndarray, y_test: np.ndarray,
-                            max_k: int = 30) -> None:
+                            max_k: int = 30, cv: int = 5) -> int:
     """
-    Plot train and test accuracy for a range of k values.
+    Plot train and cross-validated accuracy for a range of k values.
 
     The k-selection curve is the primary diagnostic tool for KNN.
-    The optimal k is where test accuracy peaks without underfitting.
+    The optimal k is where cross-validated accuracy peaks.
+
+    Only the training data is used. Picking k by test accuracy would leak the
+    test set into model selection and make the final test score optimistic;
+    k-fold cross-validation inside the training set gives an honest estimate.
 
     Pattern to look for:
-        - k=1: often 100% train accuracy (memorizes training set), low test accuracy
-        - Increasing k: test accuracy rises (reducing variance)
-        - Too large k: test accuracy drops (increasing bias, underfitting)
-        - Best k: near the peak of the test accuracy curve
+        - k=1: 100% train accuracy (memorizes training set), lower CV accuracy
+        - Increasing k: CV accuracy rises (reducing variance)
+        - Too large k: CV accuracy drops (increasing bias, underfitting)
+        - Best k: near the peak of the CV accuracy curve
 
-    Fine-tuning tip: if test accuracy keeps rising to the maximum k tested,
+    Fine-tuning tip: if CV accuracy keeps rising to the maximum k tested,
     extend max_k or consider that KNN may not be the right model.
 
     Args:
         X_train, y_train: training data
-        X_test, y_test:   test data
         max_k:            maximum k to evaluate
+        cv:               number of cross-validation folds
+
+    Returns:
+        the k with the best cross-validated accuracy
     """
     k_range = range(1, max_k + 1)
-    train_acc, test_acc = [], []
+    train_acc, cv_acc = [], []
 
     for k in k_range:
         pipeline = build_classifier_pipeline(n_neighbors=k)
-        pipeline.fit(X_train, y_train)
-        train_acc.append(pipeline.score(X_train, y_train))
-        test_acc.append(pipeline.score(X_test, y_test))
+        cv_acc.append(cross_val_score(pipeline, X_train, y_train, cv=cv).mean())
+        train_acc.append(pipeline.fit(X_train, y_train).score(X_train, y_train))
 
-    best_k = k_range[np.argmax(test_acc)]
+    best_k = k_range[int(np.argmax(cv_acc))]
 
     plt.figure(figsize=(10, 4))
     plt.plot(k_range, train_acc, label="Train Accuracy")
-    plt.plot(k_range, test_acc, label="Test Accuracy")
+    plt.plot(k_range, cv_acc, label=f"{cv}-fold CV Accuracy")
     plt.axvline(best_k, color="red", linestyle="--", label=f"Best k={best_k}")
     plt.xlabel("k (n_neighbors)")
     plt.ylabel("Accuracy")
-    plt.title("KNN — k Selection Curve")
+    plt.title("KNN — k Selection Curve (cross-validated)")
     plt.legend()
     plt.tight_layout()
     save_figure("knn_k_selection.png", dpi=150)
 
-    print(f"Best k: {best_k}  (test accuracy: {max(test_acc):.4f})")
+    print(f"Best k: {best_k}  (CV accuracy: {max(cv_acc):.4f})")
+    return best_k
 
 
 def plot_decision_boundary_2d(pipeline, X: np.ndarray, y: np.ndarray) -> None:
@@ -345,7 +351,7 @@ def main():
 
     # k selection curve — most important diagnostic
     print("\n=== k Selection Analysis ===")
-    plot_k_selection_curve(X_train, y_train, X_test, y_test)
+    plot_k_selection_curve(X_train, y_train)   # uses training data only
 
     # Grid search
     print("\n=== Hyperparameter Tuning ===")

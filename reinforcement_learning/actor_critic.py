@@ -56,7 +56,8 @@ from torch.distributions import Normal, Categorical
 import gymnasium as gym
 from collections import deque
 
-from deepdraft.core import fast_or, save_figure
+from deepdraft.core import fast_or, save_figure, seed_everything
+from deepdraft.evaluation import mean_confidence_interval
 
 DEVICE = (
     torch.device("cuda") if torch.cuda.is_available()
@@ -177,24 +178,39 @@ class SyncVectorEnv:
         self.envs = [fn() for fn in env_fns]
         self.n    = len(self.envs)
 
-    def reset(self):
-        obs = [env.reset()[0] for env in self.envs]
+    def reset(self, seed: int | None = None):
+        # Each copy gets its own seed so the parallel episodes differ
+        obs = [env.reset(seed=None if seed is None else seed + i)[0]
+               for i, env in enumerate(self.envs)]
         return np.array(obs, dtype=np.float32)
 
     def step(self, actions):
+        """
+        Step every environment and auto-reset the ones whose episode ended.
+
+        Returns:
+            obs:       next observations (the reset observation where an episode ended)
+            rewards:   rewards
+            dones:     1.0 where the episode ended for any reason
+            terms:     1.0 where it ended in a true terminal state
+            final_obs: the observation the episode ended on, before the reset,
+                       needed to bootstrap truncated episodes
+        """
         results = [env.step(int(a) if not isinstance(a, np.ndarray) else a)
                    for env, a in zip(self.envs, actions)]
         obs, rewards, terms, truncs, infos = zip(*results)
 
+        terms = np.array(terms, dtype=np.float32)
         dones = np.array([t or u for t, u in zip(terms, truncs)], dtype=np.float32)
         obs_arr = np.array(obs, dtype=np.float32)
+        final_obs = obs_arr.copy()
 
         # Auto-reset: replace obs for done environments
         for i, done in enumerate(dones):
             if done:
                 obs_arr[i] = self.envs[i].reset()[0]
 
-        return obs_arr, np.array(rewards, dtype=np.float32), dones
+        return obs_arr, np.array(rewards, dtype=np.float32), dones, terms, final_obs
 
     def close(self):
         for env in self.envs:
@@ -271,9 +287,15 @@ class A2CAgent:
 
         Returns stacked arrays of shape (n_steps, n_envs, ...).
         The last observation is used to bootstrap the value for incomplete episodes.
+
+        Truncated episodes (time limit, e.g. CartPole's 500 steps) are not
+        true ends. Their stored reward gets γ V(final_obs) added, so the
+        advantage still sees the value the episode would have gone on to
+        collect; the done flag only stops the return from crossing into the
+        next episode. The raw rewards are returned separately for logging.
         """
         all_obs, all_actions, all_rewards, all_dones = [], [], [], []
-        all_values, all_log_probs = [], []
+        all_values, all_log_probs, all_raw_rewards = [], [], []
 
         for _ in range(self.n_steps):
             obs_t = torch.tensor(obs, dtype=torch.float32).to(DEVICE)
@@ -286,11 +308,19 @@ class A2CAgent:
                     log_prob = log_prob.sum(-1)
 
             action_np = action.cpu().numpy()
-            next_obs, rewards, dones = envs.step(action_np)
+            next_obs, rewards, dones, terms, final_obs = envs.step(action_np)
+
+            stored = rewards.copy()
+            truncated = (dones == 1) & (terms == 0)
+            if truncated.any():
+                with torch.no_grad():
+                    _, v_final = self.network(torch.tensor(final_obs[truncated]).to(DEVICE))
+                stored[truncated] += self.gamma * v_final.squeeze(-1).cpu().numpy()
 
             all_obs.append(obs)
             all_actions.append(action_np)
-            all_rewards.append(rewards)
+            all_raw_rewards.append(rewards)
+            all_rewards.append(stored)
             all_dones.append(dones)
             all_values.append(value.squeeze(-1).cpu().numpy())
             all_log_probs.append(log_prob.cpu().numpy())
@@ -305,7 +335,7 @@ class A2CAgent:
 
         return (np.array(all_obs), np.array(all_actions), np.array(all_rewards),
                 np.array(all_dones), np.array(all_values), np.array(all_log_probs),
-                last_value, obs)
+                last_value, obs, np.array(all_raw_rewards))
 
     def compute_advantages(
         self,
@@ -434,10 +464,12 @@ A2C_CONFIG = {
     "max_grad_norm":   0.5,
     "use_gae":         True,
     "total_timesteps": fast_or(200_000, 2_000),
+    "seeds":           fast_or([0, 1, 2, 3, 4], [0, 1]),  # each seed is a full training run
+    "eval_episodes":   fast_or(10, 2),
 }
 
 
-def train(config: dict = None) -> tuple:
+def train(config: dict = None, seed: int = 0) -> tuple:
     """
     A2C training loop with vectorized environments.
 
@@ -449,6 +481,7 @@ def train(config: dict = None) -> tuple:
     """
     cfg    = config or A2C_CONFIG
     env_id = cfg["env_id"]
+    seed_everything(seed)               # random, NumPy, and torch
 
     # Create vectorized environments
     env_fns = [lambda: gym.make(env_id) for _ in range(cfg["n_envs"])]
@@ -470,7 +503,7 @@ def train(config: dict = None) -> tuple:
         use_gae=cfg["use_gae"],
     )
 
-    obs             = envs.reset()
+    obs             = envs.reset(seed=seed)
     episode_returns = []
     ep_buffers      = [0.0] * cfg["n_envs"]
     recent_returns  = deque(maxlen=20)
@@ -482,12 +515,12 @@ def train(config: dict = None) -> tuple:
 
     while total_steps < cfg["total_timesteps"]:
         (obs_arr, act_arr, rew_arr, done_arr,
-         val_arr, lp_arr, last_val, obs) = agent.collect_rollout(envs, obs)
+         val_arr, lp_arr, last_val, obs, raw_rew_arr) = agent.collect_rollout(envs, obs)
 
-        # Track episode returns (approximate — envs auto-reset)
+        # Track episode returns from the raw rewards (envs auto-reset)
         for t in range(cfg["n_steps"]):
             for e in range(cfg["n_envs"]):
-                ep_buffers[e] += rew_arr[t, e]
+                ep_buffers[e] += raw_rew_arr[t, e]
                 if done_arr[t, e]:
                     episode_returns.append(ep_buffers[e])
                     recent_returns.append(ep_buffers[e])
@@ -540,10 +573,51 @@ def plot_training(episode_returns: list, window: int = 20) -> None:
 # MAIN
 # ─────────────────────────────────────────────
 
+def evaluate(agent: A2CAgent, env_id: str, n_episodes: int, seed: int) -> float:
+    """
+    Mean return of the deterministic policy (most likely action, or the mean
+    action for continuous control) on episodes the training run never saw.
+    """
+    env = gym.make(env_id)
+    returns = []
+    for k in range(n_episodes):
+        obs, _ = env.reset(seed=10_000 + 1_000 * seed + k)
+        total, done = 0.0, False
+        while not done:
+            obs_t = torch.tensor(obs, dtype=torch.float32).unsqueeze(0).to(DEVICE)
+            with torch.no_grad():
+                dist, _ = agent.network(obs_t)
+            if agent.action_type == "discrete":
+                action = int(dist.probs.argmax(-1).item())
+            else:
+                action = np.clip(dist.mean.squeeze(0).cpu().numpy(),
+                                 env.action_space.low, env.action_space.high)
+            obs, reward, terminated, truncated, _ = env.step(action)
+            done = terminated or truncated
+            total += reward
+        returns.append(total)
+    env.close()
+    return float(np.mean(returns))
+
+
 def main():
     print("=== Advantage Actor-Critic (A2C) ===")
-    agent, returns = train()
-    plot_training(returns)
+    cfg = A2C_CONFIG
+
+    # One training run says little: RL results vary a lot between seeds.
+    # Train once per seed and report the mean with a 95% confidence interval.
+    scores = []
+    for i, seed in enumerate(cfg["seeds"]):
+        print(f"\n--- Seed {seed} ---")
+        agent, returns = train(cfg, seed=seed)
+        scores.append(evaluate(agent, cfg["env_id"], cfg["eval_episodes"], seed))
+        print(f"  Deterministic evaluation return: {scores[-1]:.1f}")
+        if i == 0:
+            plot_training(returns)
+
+    mean, lo, hi = mean_confidence_interval(scores)
+    print(f"\nDeterministic return over {len(scores)} seeds: {mean:.1f}  "
+          f"(95% CI [{lo:.1f}, {hi:.1f}]; per seed: {np.round(scores, 1).tolist()})")
 
 
 if __name__ == "__main__":

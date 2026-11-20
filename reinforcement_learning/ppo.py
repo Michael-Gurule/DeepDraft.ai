@@ -63,7 +63,8 @@ from torch.distributions import Normal, Categorical
 from collections import deque
 import gymnasium as gym
 
-from deepdraft.core import fast_or, save_figure
+from deepdraft.core import fast_or, save_figure, seed_everything
+from deepdraft.evaluation import mean_confidence_interval
 
 DEVICE = (
     torch.device("cuda") if torch.cuda.is_available()
@@ -374,7 +375,13 @@ class PPOAgent:
             log_prob = log_prob.sum(-1)  # sum over action dimensions
         return action.squeeze(0).cpu().numpy(), log_prob.item(), value.item()
 
-    def update(self) -> dict:
+    @torch.no_grad()
+    def value(self, obs: np.ndarray) -> float:
+        """State value V(obs) from the critic."""
+        obs_t = torch.tensor(obs, dtype=torch.float32).unsqueeze(0).to(DEVICE)
+        return self.network.get_value(obs_t).item()
+
+    def update(self, last_obs: np.ndarray) -> dict:
         """
         Perform PPO update on the collected rollout.
 
@@ -388,12 +395,15 @@ class PPOAgent:
                 - Compute entropy bonus
                 - Backpropagate and clip gradients
 
+        Args:
+            last_obs: the observation reached after the last stored step. Its
+                      value bootstraps the unfinished episode at the rollout's
+                      end. (The last STORED observation is one step too early.)
+
         Returns:
             dict of training metrics (losses, clip fraction, approx KL)
         """
-        last_obs = torch.tensor(self.buffer.obs[-1], dtype=torch.float32).unsqueeze(0).to(DEVICE)
-        last_val = self.network.get_value(last_obs).item()
-        self.buffer.compute_returns_and_advantages(last_val, self.gamma, self.gae_lambda)
+        self.buffer.compute_returns_and_advantages(self.value(last_obs), self.gamma, self.gae_lambda)
 
         obs, actions, old_log_probs, returns, advantages = self.buffer.get_tensors()
         obs          = obs.to(DEVICE)
@@ -513,7 +523,7 @@ class PPOKLAgent(PPOAgent):
         self.beta_min  = beta_min
         self.beta_max  = beta_max
 
-    def update(self) -> dict:
+    def update(self, last_obs: np.ndarray) -> dict:
         """
         PPO-KL update: maximise E[r*A] subject to adaptive KL penalty.
 
@@ -521,9 +531,7 @@ class PPOKLAgent(PPOAgent):
         The KL coefficient β is updated once per rollout based on the
         mean KL observed across all minibatch updates.
         """
-        last_obs = torch.tensor(self.buffer.obs[-1], dtype=torch.float32).unsqueeze(0).to(DEVICE)
-        last_val = self.network.get_value(last_obs).item()
-        self.buffer.compute_returns_and_advantages(last_val, self.gamma, self.gae_lambda)
+        self.buffer.compute_returns_and_advantages(self.value(last_obs), self.gamma, self.gae_lambda)
 
         obs, actions, old_log_probs, returns, advantages = self.buffer.get_tensors()
         obs           = obs.to(DEVICE)
@@ -620,10 +628,45 @@ PPO_CONFIG = {
     "max_grad_norm":  0.5,
     "rollout_length": fast_or(2048, 256),
     "total_timesteps": fast_or(200_000, 512),
+    "seeds":          fast_or([0, 1, 2, 3, 4], [0, 1]),  # each seed is a full training run
+    "eval_episodes":  fast_or(10, 2),
 }
 
 
-def train(config: dict = None) -> tuple:
+def collect_step(agent: "PPOAgent", env: gym.Env, obs: np.ndarray,
+                 action_type: str) -> tuple:
+    """
+    Take one environment step and store the transition in the rollout buffer.
+
+    Terminated vs. truncated: a terminated episode reached a true end state,
+    so nothing follows it. A truncated episode was cut off by a time limit
+    (Pendulum-v1 ALWAYS ends this way, after 200 steps); the pendulum would
+    have kept swinging. Treating truncation as termination teaches the critic
+    that every state near step 200 is worth zero.
+
+    The buffer has one done flag, which stops GAE from running across the
+    episode boundary. For a truncated step we keep the flag and fold the
+    missing future into the reward instead: r + γ V(s_next). The one-step
+    TD error then equals r + γ V(s_next) - V(s), as if the episode went on.
+
+    Returns:
+        next_obs, raw reward (for logging), episode_ended
+    """
+    action, log_prob, value = agent.get_action(obs)
+    if action_type == "continuous":
+        clipped = np.clip(action, env.action_space.low, env.action_space.high)
+    else:
+        clipped = int(action)
+
+    next_obs, reward, terminated, truncated, _ = env.step(clipped)
+    stored_reward = reward
+    if truncated and not terminated:
+        stored_reward = reward + agent.gamma * agent.value(next_obs)
+    agent.buffer.store(obs, action, stored_reward, float(terminated or truncated), value, log_prob)
+    return next_obs, reward, terminated or truncated
+
+
+def train(config: dict = None, seed: int = 0) -> tuple:
     """
     Full PPO training loop.
 
@@ -643,7 +686,9 @@ def train(config: dict = None) -> tuple:
         agent, episode_returns list
     """
     cfg = config or PPO_CONFIG
+    seed_everything(seed)               # random, NumPy, and torch
     env = gym.make(cfg["env_id"])
+    env.action_space.seed(seed)
 
     obs_dim    = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0] if hasattr(env.action_space, "shape") else env.action_space.n
@@ -658,7 +703,7 @@ def train(config: dict = None) -> tuple:
         max_grad_norm=cfg["max_grad_norm"], rollout_length=cfg["rollout_length"],
     )
 
-    obs, _ = env.reset()
+    obs, _ = env.reset(seed=seed)       # seeds the environment's own RNG once
     episode_return  = 0.0
     episode_returns = []
     recent_returns  = deque(maxlen=20)
@@ -670,18 +715,7 @@ def train(config: dict = None) -> tuple:
     while total_steps < cfg["total_timesteps"]:
         # ── Collect rollout ──────────────────────────────────────
         while not agent.buffer.is_full():
-            action, log_prob, value = agent.get_action(obs)
-
-            # Clip action to environment bounds (continuous envs)
-            if action_type == "continuous":
-                clipped = np.clip(action, env.action_space.low, env.action_space.high)
-            else:
-                clipped = int(action)
-
-            next_obs, reward, terminated, truncated, _ = env.step(clipped)
-            done = terminated or truncated
-
-            agent.buffer.store(obs, action, reward, float(done), value, log_prob)
+            next_obs, reward, done = collect_step(agent, env, obs, action_type)
             obs            = next_obs
             episode_return += reward
             total_steps    += 1
@@ -693,7 +727,7 @@ def train(config: dict = None) -> tuple:
                 obs, _ = env.reset()
 
         # ── Update policy ────────────────────────────────────────
-        metrics = agent.update()
+        metrics = agent.update(obs)
         update_count += 1
 
         if update_count % 5 == 0:
@@ -739,7 +773,8 @@ def plot_training(episode_returns: list, window: int = 20) -> None:
     save_figure("ppo_training.png", dpi=150)
 
 
-def evaluate(agent: PPOAgent, env_id: str, n_episodes: int = fast_or(10, 2)) -> float:
+def evaluate(agent: PPOAgent, env_id: str, n_episodes: int = fast_or(10, 2),
+             seed: int = 0) -> float:
     """
     Evaluate a trained PPO agent deterministically (mean action).
 
@@ -747,14 +782,16 @@ def evaluate(agent: PPOAgent, env_id: str, n_episodes: int = fast_or(10, 2)) -> 
         agent:      trained PPOAgent
         env_id:     gymnasium environment ID
         n_episodes: number of evaluation episodes
+        seed:       training seed; evaluation episodes use seeds derived from
+                    it that the training run never saw
 
     Returns:
         mean episode return
     """
     env = gym.make(env_id)
     returns = []
-    for _ in range(n_episodes):
-        obs, _ = env.reset()
+    for k in range(n_episodes):
+        obs, _ = env.reset(seed=10_000 + 1_000 * seed + k)
         total, done = 0.0, False
         while not done:
             obs_t = torch.tensor(obs, dtype=torch.float32).unsqueeze(0).to(DEVICE)
@@ -780,13 +817,15 @@ def evaluate(agent: PPOAgent, env_id: str, n_episodes: int = fast_or(10, 2)) -> 
 # MAIN
 # ─────────────────────────────────────────────
 
-def train_kl_variant(config: dict = None) -> tuple:
+def train_kl_variant(config: dict = None, seed: int = 0) -> tuple:
     """
     Train PPO with adaptive KL penalty instead of clipping.
     Drop-in replacement for train() — same interface, different update rule.
     """
     cfg = config or PPO_CONFIG
+    seed_everything(seed)
     env = gym.make(cfg["env_id"])
+    env.action_space.seed(seed)
 
     obs_dim     = env.observation_space.shape[0]
     action_dim  = env.action_space.shape[0] if hasattr(env.action_space, "shape") else env.action_space.n
@@ -803,7 +842,7 @@ def train_kl_variant(config: dict = None) -> tuple:
         beta_init=1.0,     # Placeholder: adapts automatically; rarely needs tuning
     )
 
-    obs, _ = env.reset()
+    obs, _ = env.reset(seed=seed)
     episode_return, episode_returns = 0.0, []
     recent_returns = deque(maxlen=20)
     total_steps, update_count = 0, 0
@@ -811,12 +850,7 @@ def train_kl_variant(config: dict = None) -> tuple:
     print(f"Training PPO-KL on {cfg['env_id']}")
     while total_steps < cfg["total_timesteps"]:
         while not agent.buffer.is_full():
-            action, log_prob, value = agent.get_action(obs)
-            clipped = (np.clip(action, env.action_space.low, env.action_space.high)
-                       if action_type == "continuous" else int(action))
-            next_obs, reward, terminated, truncated, _ = env.step(clipped)
-            done = terminated or truncated
-            agent.buffer.store(obs, action, reward, float(done), value, log_prob)
+            next_obs, reward, done = collect_step(agent, env, obs, action_type)
             obs = next_obs
             episode_return += reward
             total_steps += 1
@@ -826,7 +860,7 @@ def train_kl_variant(config: dict = None) -> tuple:
                 episode_return = 0.0
                 obs, _ = env.reset()
 
-        metrics = agent.update()
+        metrics = agent.update(obs)
         update_count += 1
         if update_count % 5 == 0:
             mean_ret = np.mean(recent_returns) if recent_returns else float("nan")
@@ -839,9 +873,21 @@ def train_kl_variant(config: dict = None) -> tuple:
 
 def main():
     print("=== Proximal Policy Optimization (PPO) ===")
-    agent, returns = train()
-    plot_training(returns)
-    evaluate(agent, PPO_CONFIG["env_id"])
+    cfg = PPO_CONFIG
+
+    # One training run says little: RL results vary a lot between seeds.
+    # Train once per seed and report the mean with a 95% confidence interval.
+    scores = []
+    for i, seed in enumerate(cfg["seeds"]):
+        print(f"\n--- Seed {seed} ---")
+        agent, returns = train(cfg, seed=seed)
+        scores.append(evaluate(agent, cfg["env_id"], cfg["eval_episodes"], seed=seed))
+        if i == 0:
+            plot_training(returns)
+
+    mean, lo, hi = mean_confidence_interval(scores)
+    print(f"\nDeterministic return over {len(scores)} seeds: {mean:.1f}  "
+          f"(95% CI [{lo:.1f}, {hi:.1f}]; per seed: {np.round(scores, 1).tolist()})")
 
     # Uncomment to compare clipped PPO vs KL-penalty PPO:
     # print("\n=== PPO with Adaptive KL Penalty ===")

@@ -62,6 +62,7 @@ from sklearn.datasets import make_blobs
 from sklearn.model_selection import GridSearchCV
 
 from deepdraft.core import save_figure
+from deepdraft.evaluation import train_val_test_split
 
 
 # ─────────────────────────────────────────────
@@ -91,8 +92,7 @@ def generate_anomaly_data(
 
     Returns:
         X:     feature matrix (all samples, normal first then anomalies)
-        y:     labels: 0=normal, 1=anomaly
-        X_train: unlabeled training set (normal + some anomalies, as in real use)
+        y:     labels: 0=normal, 1=anomaly (used only for validation and testing)
     """
     # Normal data: tight Gaussian clusters
     X_normal, _ = make_blobs(n_samples=n_normal, n_features=n_features,
@@ -115,10 +115,7 @@ def generate_anomaly_data(
 
     X = np.vstack([X_normal, X_anomalies]).astype(np.float32)
     y = np.array([0] * n_normal + [1] * n_anomalies)  # 1 = anomaly
-
-    # Training set: unsupervised — no labels used during fitting
-    X_train = X_normal.astype(np.float32)
-    return X, y, X_train
+    return X, y
 
 
 # ─────────────────────────────────────────────
@@ -160,7 +157,8 @@ def build_pipeline(contamination: float = 0.05) -> tuple:
 # EVALUATION
 # ─────────────────────────────────────────────
 
-def evaluate(model, scaler, X: np.ndarray, y: np.ndarray) -> dict:
+def evaluate(model, scaler, X: np.ndarray, y: np.ndarray,
+             threshold: float | None = None) -> dict:
     """
     Evaluate anomaly detection performance.
 
@@ -174,13 +172,14 @@ def evaluate(model, scaler, X: np.ndarray, y: np.ndarray) -> dict:
     Metrics:
         ROC-AUC: threshold-independent discrimination ability
         AP (Avg Precision): area under precision-recall curve (better for imbalanced)
-        Precision/Recall at predicted contamination threshold
+        Precision/Recall at the contamination threshold, or at `threshold`
 
     Args:
-        model:  fitted IsolationForest
-        scaler: fitted StandardScaler
-        X:      all samples (normal + anomalies)
-        y:      true labels (0=normal, 1=anomaly)
+        model:     fitted IsolationForest
+        scaler:    fitted StandardScaler
+        X:         held-out samples (normal + anomalies), never used for fitting
+        y:         true labels (0=normal, 1=anomaly)
+        threshold: anomaly-score cutoff; None uses the model's contamination cutoff
 
     Returns:
         dict of metrics
@@ -190,9 +189,12 @@ def evaluate(model, scaler, X: np.ndarray, y: np.ndarray) -> dict:
     # Raw anomaly scores: more negative = more anomalous
     scores = -model.score_samples(X_scaled)   # negate: higher = more anomalous
 
-    # Predicted labels (at contamination threshold)
-    pred_raw  = model.predict(X_scaled)       # +1 or -1
-    y_pred    = (pred_raw == -1).astype(int)  # 1 = anomaly
+    if threshold is None:
+        # Predicted labels at the contamination threshold
+        pred_raw = model.predict(X_scaled)        # +1 or -1
+        y_pred   = (pred_raw == -1).astype(int)   # 1 = anomaly
+    else:
+        y_pred = (scores >= threshold).astype(int)
 
     auc = roc_auc_score(y, scores)
     ap  = average_precision_score(y, scores)
@@ -230,10 +232,13 @@ def find_optimal_threshold(model, scaler, X: np.ndarray, y: np.ndarray) -> float
     point that matches your business tolerance for false positives vs. false negatives.
     High-stakes systems (fraud, security) → optimize recall; others → balance F1.
 
+    Pass a labeled VALIDATION set. A threshold tuned on the test set makes the
+    test precision and recall optimistic, because the test labels chose it.
+
     Args:
         model:  fitted IsolationForest
         scaler: fitted StandardScaler
-        X:      all samples
+        X:      labeled validation samples
         y:      true binary labels
 
     Returns:
@@ -280,7 +285,7 @@ def plot_anomaly_scores(model, scaler, X: np.ndarray, y: np.ndarray) -> None:
     plt.figure(figsize=(9, 4))
     plt.hist(scores[y == 0], bins=50, alpha=0.6, label="Normal",   color="steelblue")
     plt.hist(scores[y == 1], bins=50, alpha=0.6, label="Anomaly",  color="tomato")
-    threshold = np.percentile(scores, 100 * (1 - IFOREST_CONFIG["contamination"]))
+    threshold = -model.offset_   # the cutoff predict() uses, fixed at fit time by contamination
     plt.axvline(threshold, color="black", linestyle="--", label=f"Threshold ({threshold:.3f})")
     plt.xlabel("Anomaly Score (higher = more anomalous)")
     plt.ylabel("Count")
@@ -345,24 +350,33 @@ def plot_confusion_matrix(model, scaler, X: np.ndarray, y: np.ndarray) -> None:
 def main():
     print("=== Isolation Forest Anomaly Detection ===")
 
-    X, y, X_train = generate_anomaly_data(n_normal=1000, n_anomalies=50)
+    X, y = generate_anomaly_data(n_normal=1000, n_anomalies=50)
     print(f"Dataset: {X.shape[0]} samples ({y.sum()} anomalies) | {X.shape[1]} features")
 
-    # Fit on normal-only training data (unsupervised)
-    scaler, model = build_pipeline(contamination=50 / len(X))
+    # Train / validation / test, stratified so every split holds some anomalies.
+    # The training labels are thrown away: Isolation Forest is unsupervised and
+    # fits the raw, contaminated data, as it would in production.
+    X_train, X_val, X_test, _, y_val, y_test = train_val_test_split(
+        X, y, val_size=0.2, test_size=0.3, stratify=y
+    )
+    contamination = y.mean()   # Placeholder: use your known or estimated anomaly rate
+
+    scaler, model = build_pipeline(contamination=contamination)
     X_train_scaled = scaler.fit_transform(X_train)
     model.fit(X_train_scaled)
 
-    print("\nEvaluation (on all samples including anomalies):")
-    evaluate(model, scaler, X, y)
+    print("\nTest set, contamination threshold:")
+    evaluate(model, scaler, X_test, y_test)
 
-    # Threshold analysis using labeled data (if available)
-    find_optimal_threshold(model, scaler, X, y)
+    # Threshold analysis using a small labeled validation set (if available)
+    best_thresh = find_optimal_threshold(model, scaler, X_val, y_val)
+    print("\nTest set, F1-optimal threshold chosen on validation:")
+    evaluate(model, scaler, X_test, y_test, threshold=best_thresh)
 
-    # Visualizations
-    plot_anomaly_scores(model, scaler, X, y)
-    plot_2d_decision_boundary(model, scaler, X, y)
-    plot_confusion_matrix(model, scaler, X, y)
+    # Visualizations (held-out test data)
+    plot_anomaly_scores(model, scaler, X_test, y_test)
+    plot_2d_decision_boundary(model, scaler, X_test, y_test)
+    plot_confusion_matrix(model, scaler, X_test, y_test)
 
 
 if __name__ == "__main__":
