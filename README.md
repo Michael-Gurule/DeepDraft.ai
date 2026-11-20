@@ -8,7 +8,6 @@ Use it to:
 - **Copy** a working baseline into your own project and swap in your data.
 - **Tune** with the practical "Fine-Tuning Recommendations" in every module.
 
-> **Project status:** early development. The [repository review](docs/review/REPOSITORY_REVIEW.md) documents known issues module by module, and the [roadmap](ROADMAP.md) lays out the plan to fix them and grow the toolkit. Phase 0 (making every module install and run) is in progress.
 
 ---
 
@@ -198,7 +197,7 @@ The [module standard](docs/MODULE_STANDARD.md) describes the walkthrough structu
 
 ## Contributing
 
-Contributions are welcome. Until a full contributing guide lands (roadmap Phase 8):
+Contributions are welcome. Until a full contributing guide lands:
 
 1. Read the [module standard](docs/MODULE_STANDARD.md) before adding or rewriting a module.
 2. Install the development tools with `pip install -e ".[dev]"` and run `pre-commit install`.
